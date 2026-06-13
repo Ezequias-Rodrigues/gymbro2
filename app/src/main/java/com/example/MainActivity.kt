@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -479,116 +482,608 @@ fun OrientationVisualizer(
     imuData: ImuData,
     modifier: Modifier = Modifier
 ) {
-    // Map acceleration to rotational degrees for visual simulation
-    val rotX by animateFloatAsState(
-        targetValue = (imuData.accelY * -9f).coerceIn(-90f, 90f),
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "rot_x"
+    // Local calibration states to permit manual centering based on user phone posture
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+    var offsetZBy98 by remember { mutableStateOf(0f) } // normalized around gravity (9.8 m/s2)
+
+    // Interactive rendering avatar selection styles
+    var selectedStyle by remember { mutableStateOf("Cyber Neon") }
+
+    // Calibrated physical readings
+    val calValueX = imuData.accelX - offsetX
+    val calValueY = imuData.accelY - offsetY
+    val calValueZ = imuData.accelZ - offsetZBy98 // centered around gravity
+
+    // Smooth physics animated states using damping springs to prevent jitter
+    val smoothAccelX by animateFloatAsState(
+        targetValue = calValueX,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
+        label = "smooth_acc_x"
     )
-    val rotY by animateFloatAsState(
-        targetValue = (imuData.accelX * 9f).coerceIn(-90f, 90f),
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "rot_y"
+    val smoothAccelY by animateFloatAsState(
+        targetValue = calValueY,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
+        label = "smooth_acc_y"
     )
-    val rotZ by animateFloatAsState(
-        targetValue = (imuData.gyroZ * 50f).coerceIn(-180f, 180f),
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "rot_z"
+    val smoothAccelZ by animateFloatAsState(
+        targetValue = calValueZ,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
+        label = "smooth_acc_z"
     )
 
-    Box(
+    val smoothGyroX by animateFloatAsState(
+        targetValue = imuData.gyroX,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "smooth_gyro_x"
+    )
+    val smoothGyroY by animateFloatAsState(
+        targetValue = imuData.gyroY,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "smooth_gyro_y"
+    )
+    val smoothGyroZ by animateFloatAsState(
+        targetValue = imuData.gyroZ,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "smooth_gyro_z"
+    )
+
+    // Compute variance from static Earth gravity (magnitude deviation)
+    val diffX = calValueX
+    val diffY = calValueY
+    val diffZ = calValueZ - 9.8f
+    val motionMagnitude = kotlin.math.sqrt(diffX * diffX + diffY * diffY + diffZ * diffZ)
+    val angularSpeed = kotlin.math.abs(imuData.gyroX) + kotlin.math.abs(imuData.gyroY) + kotlin.math.abs(imuData.gyroZ)
+
+    // Dynamic user motion states logic
+    val statusText = when {
+        motionMagnitude > 4.5f || angularSpeed > 2.2f -> "RUNNING / SPRINTING ⚡"
+        motionMagnitude > 1.6f || angularSpeed > 1.2f -> "WALKING / OSCILLATING 🚶"
+        motionMagnitude > 0.5f || angularSpeed > 0.4f -> "GENTLE LEAN / SWAYING 🍃"
+        else -> "PERFECT STILLNESS 😴"
+    }
+
+    val statusBadgeColor = when {
+        statusText.contains("⚡") -> Color(0xFF7DFFB3) // Glowing light emerald
+        statusText.contains("🚶") -> Color(0xFFD0BCFF) // Accent violet
+        statusText.contains("🍃") -> Color(0xFFE8DEF8) // Soft lavender
+        else -> Color(0xFF938F99) // Gray status
+    }
+
+    // Walking/Running motion phase cycle animation
+    val infiniteTransition = rememberInfiniteTransition(label = "runner_cycle_engine")
+    val cyclePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = if (statusText.contains("⚡")) 420 else 840,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "cycle_phase"
+    )
+
+    // Smooth movement influence scorer
+    val movementScore = if (statusText.contains("⚡") || statusText.contains("🚶")) 1f else 0f
+    val smoothMovementFactor by animateFloatAsState(
+        targetValue = movementScore,
+        animationSpec = tween(350),
+        label = "movement_factor"
+    )
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .height(130.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(Color(0xFF2B2930))
             .border(1.dp, Color(0xFF49454F), RoundedCornerShape(24.dp))
-            .drawBehind {
-                // Draw digital grid background pattern matching the HTML
-                val strokeWidth = 0.5f
-                val dashPathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                    floatArrayOf(10f, 10f),
-                    0f
-                )
-                val gridStep = 40.dp.toPx()
-                for (x in 0..size.width.toInt() step gridStep.toInt()) {
-                    drawLine(
-                        color = Color(0xFFD0BCFF).copy(alpha = 0.08f),
-                        start = Offset(x.toFloat(), 0f),
-                        end = Offset(x.toFloat(), size.height),
-                        strokeWidth = strokeWidth,
-                        pathEffect = dashPathEffect
-                    )
-                }
-                for (y in 0..size.height.toInt() step gridStep.toInt()) {
-                    drawLine(
-                        color = Color(0xFFD0BCFF).copy(alpha = 0.08f),
-                        start = Offset(0f, y.toFloat()),
-                        end = Offset(size.width, y.toFloat()),
-                        strokeWidth = strokeWidth,
-                        pathEffect = dashPathEffect
-                    )
-                }
-            },
-        contentAlignment = Alignment.Center
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Holographic Glowing 3D Board
-        Box(
-            modifier = Modifier
-                .size(70.dp)
-                .graphicsLayer {
-                    rotationX = rotX
-                    rotationY = rotY
-                    rotationZ = rotZ + 15f // extra 15deg base rotation like the HTML design
-                    cameraDistance = 8 * density
-                }
-                .border(
-                    width = 2.dp,
-                    brush = Brush.linearGradient(
-                        colors = listOf(Color(0xFFD0BCFF), Color(0xFFD0BCFF).copy(alpha = 0.3f))
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFD0BCFF).copy(alpha = 0.25f),
-                            Color.Transparent
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center
+        // --- HUD HEADER: Status Indicators and Calibrate Action Button ---
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Inner axis indicators
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFD0BCFF))
-            )
+            Column {
+                Text(
+                    text = "MOTION HUMAN CHARACTER LIVE",
+                    color = Color(0xFFD0BCFF),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(statusBadgeColor)
+                    )
+                    Text(
+                        text = statusText,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // High-Utility Centering calibration button
+            Button(
+                onClick = {
+                    offsetX = imuData.accelX
+                    offsetY = imuData.accelY
+                    offsetZBy98 = imuData.accelZ - 9.8f
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF1C1B1F),
+                    contentColor = Color(0xFFD0BCFF)
+                ),
+                border = BorderStroke(1.dp, Color(0xFF49454F)),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.height(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Zero Center Balance",
+                    tint = Color(0xFFD0BCFF),
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("ZERO CENTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
         }
 
-        // Live labels
-        Box(
+        HorizontalDivider(color = Color(0xFF49454F), thickness = 0.5.dp)
+
+        // --- CORE GRID WORKSPACE: Options Panel Left, Central Drawing Box Right ---
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp)
+                .fillMaxWidth()
+                .height(250.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Options Column
+            Column(
+                modifier = Modifier
+                    .width(105.dp)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "BODY MODELS",
+                    color = Color(0xFFCAC4D0),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+
+                val stylesList = listOf("Cyber Neon", "Athletic", "Skeleton")
+                stylesList.forEach { style ->
+                    val isStyleSelected = selectedStyle == style
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isStyleSelected) Color(0xFFE8DEF8) else Color(0xFF1C1B1F))
+                            .border(
+                                1.dp,
+                                if (isStyleSelected) Color(0xFFD0BCFF) else Color(0xFF49454F),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable { selectedStyle = style }
+                            .padding(vertical = 8.dp, horizontal = 8.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = when (style) {
+                                    "Cyber Neon" -> Icons.Default.Face
+                                    "Athletic" -> Icons.Default.Favorite
+                                    else -> Icons.Default.Build
+                                },
+                                contentDescription = style,
+                                tint = if (isStyleSelected) Color(0xFF1D192B) else Color(0xFFCAC4D0),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = style,
+                                color = if (isStyleSelected) Color(0xFF1D192B) else Color(0xFFE6E1E5),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Real-time diagnostics details box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1C1B1F))
+                        .padding(8.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("LEAN SPEED", color = Color(0xFF938F99), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "${"%.1f°/s".format(angularSpeed * 57.295f)}",
+                            color = Color(0xFF7DFFB3),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text("IMPACT G", color = Color(0xFF938F99), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "${"%.2f G".format(motionMagnitude / 9.81f)}",
+                            color = Color(0xFFD0BCFF),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Human Body Visualizer Canvas Frame
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF1C1B1F))
+                    .border(1.dp, Color(0xFF49454F), RoundedCornerShape(20.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                // Circular target radar background guides
+                Canvas(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    
+                    val radX = w / 2f
+                    val radY = h * 0.45f
+
+                    // Draw static radial guidelines
+                    drawCircle(
+                        color = Color(0xFFD0BCFF).copy(alpha = 0.04f),
+                        radius = 75.dp.toPx(),
+                        center = Offset(radX, radY),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color(0xFFD0BCFF).copy(alpha = 0.07f),
+                        radius = 45.dp.toPx(),
+                        center = Offset(radX, radY),
+                        style = Stroke(
+                            width = 0.5f * 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                        )
+                    )
+                    
+                    drawLine(
+                        color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
+                        start = Offset(radX, 10.dp.toPx()),
+                        end = Offset(radX, h - 10.dp.toPx()),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                    drawLine(
+                        color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
+                        start = Offset(10.dp.toPx(), radY),
+                        end = Offset(w - 10.dp.toPx(), radY),
+                        strokeWidth = 1.dp.toPx()
+                    )
+
+                    // Draw a micro Bubble Level at the bottom to represent lateral physical leans
+                    val levelCenterY = h - 22.dp.toPx()
+                    val levelCenterX = w / 2f
+                    drawCircle(
+                        color = Color(0xFFCAC4D0).copy(alpha = 0.15f),
+                        radius = 11.dp.toPx(),
+                        center = Offset(levelCenterX, levelCenterY),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    
+                    val bubbleLimit = 9.dp.toPx()
+                    val bOfsX = (-smoothAccelX * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
+                    val bOfsY = (smoothAccelY * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
+                    drawCircle(
+                        color = Color(0xFF7DFFB3),
+                        radius = 3.dp.toPx(),
+                        center = Offset(levelCenterX + bOfsX, levelCenterY + bOfsY)
+                    )
+                }
+
+                // Custom Mannequin Draw Frame
+                Canvas(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    val w = size.width
+                    val h = size.height
+
+                    // Dimensions definitions
+                    val midY = h * 0.44f // Waist position
+                    val spineHeight = 35.dp.toPx()
+                    val headRadius = 10.dp.toPx()
+                    val shoulderWidth = 18.dp.toPx()
+                    val armSegLength = 20.dp.toPx()
+                    val legSegLength = 26.dp.toPx()
+                    val hipWidth = 11.dp.toPx()
+
+                    // Horizontal tilts maps from X axis gravity vector acceleration
+                    val chestLeanX = (-smoothAccelX * 3.2f).coerceIn(-40f, 40f) // offset scale
+                    // Pitch maps from Y axis gravity vector
+                    val chestLeanY = (smoothAccelY * -2.2f).coerceIn(-22f, 22f)
+
+                    // Twisting vector maps from Gyro Z
+                    val twistAngle = (smoothGyroZ * 14f).coerceIn(-28f, 28f)
+
+                    // Joints Calculation coordinates
+                    val basePelvisX = w / 2f
+                    val basePelvisY = midY + 12.dp.toPx()
+
+                    val neckX = w / 2f + chestLeanX
+                    val neckY = basePelvisY - spineHeight + chestLeanY
+
+                    // Shoulder joint limits
+                    val lShldX = neckX - shoulderWidth + twistAngle * 0.2f
+                    val lShldY = neckY + twistAngle * 0.1f
+                    val rShldX = neckX + shoulderWidth - twistAngle * 0.2f
+                    val rShldY = neckY - twistAngle * 0.1f
+
+                    // Floating Human Head
+                    val headX = neckX + (chestLeanX * 0.22f)
+                    val headY = neckY - headRadius - 5.dp.toPx()
+
+                    // Hip joints
+                    val lHipX = basePelvisX - hipWidth
+                    val lHipY = basePelvisY
+                    val rHipX = basePelvisX + hipWidth
+                    val rHipY = basePelvisY
+
+                    // Motion Factor interpolation LERP
+                    val mF = smoothMovementFactor
+
+                    // --- LEFT ARM MOVEMENT GENERATOR ---
+                    // Idle sway coordinates
+                    val lIdleElboX = lShldX - 4.dp.toPx() + (smoothGyroY * 4f)
+                    val lIdleElboY = lShldY + armSegLength
+                    val lIdleHandX = lIdleElboX - 2.dp.toPx() + (smoothGyroZ * 7f)
+                    val lIdleHandY = lIdleElboY + armSegLength + (smoothGyroX * 3f)
+
+                    // Sprinting oscillation coordinates
+                    val lSprintElboX = lShldX - 7.dp.toPx() + (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
+                    val lSprintElboY = lShldY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
+                    val lSprintHandX = lShldX - 14.dp.toPx() + (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
+                    val lSprintHandY = lSprintElboY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
+
+                    // Final LERPed joints
+                    val lElbX = lIdleElboX * (1f - mF) + lSprintElboX * mF
+                    val lElbY = lIdleElboY * (1f - mF) + lSprintElboY * mF
+                    val lHndX = lIdleHandX * (1f - mF) + lSprintHandX * mF
+                    val lHndY = lIdleHandY * (1f - mF) + lSprintHandY * mF
+
+                    // --- RIGHT ARM MOVEMENT GENERATOR ---
+                    val rIdleElboX = rShldX + 4.dp.toPx() - (smoothGyroY * 4f)
+                    val rIdleElboY = rShldY + armSegLength
+                    val rIdleHandX = rIdleElboX + 2.dp.toPx() - (smoothGyroZ * 7f)
+                    val rIdleHandY = rIdleElboY + armSegLength - (smoothGyroX * 3f)
+
+                    val rSprintElboX = rShldX + 7.dp.toPx() - (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
+                    val rSprintElboY = rShldY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
+                    val rSprintHandX = rShldX + 14.dp.toPx() - (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
+                    val rSprintHandY = rSprintElboY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
+
+                    val rElbX = rIdleElboX * (1f - mF) + rSprintElboX * mF
+                    val rElbY = rIdleElboY * (1f - mF) + rSprintElboY * mF
+                    val rHndX = rIdleHandX * (1f - mF) + rSprintHandX * mF
+                    val rHndY = rIdleHandY * (1f - mF) + rSprintHandY * mF
+
+                    // --- LEFT LEG MOVEMENT GENERATOR ---
+                    val lIdleKneeX = lHipX - 1.dp.toPx() - (smoothAccelX * 0.7f)
+                    val lIdleKneeY = lHipY + legSegLength
+                    val lIdleFootX = lIdleKneeX - 1.dp.toPx() - (smoothAccelX * 1.3f)
+                    val lIdleFootY = lIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
+
+                    val lSprintKneeX = lHipX + (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
+                    val lSprintKneeY = lHipY + legSegLength * 0.78f + (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
+                    val lSprintFootX = lHipX + (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
+                    val lSprintFootY = lHipY + legSegLength * 1.55f + (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
+
+                    val lKneX = lIdleKneeX * (1f - mF) + lSprintKneeX * mF
+                    val lKneY = lIdleKneeY * (1f - mF) + lSprintKneeY * mF
+                    val lFotX = lIdleFootX * (1f - mF) + lSprintFootX * mF
+                    val lFotY = lIdleFootY * (1f - mF) + lSprintFootY * mF
+
+                    // --- RIGHT LEG MOVEMENT GENERATOR ---
+                    val rIdleKneeX = rHipX + 1.dp.toPx() - (smoothAccelX * 0.7f)
+                    val rIdleKneeY = rHipY + legSegLength
+                    val rIdleFootX = rIdleKneeX + 1.dp.toPx() - (smoothAccelX * 1.3f)
+                    val rIdleFootY = rIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
+
+                    val rSprintKneeX = rHipX - (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
+                    val rSprintKneeY = rHipY + legSegLength * 0.78f - (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
+                    val rSprintFootX = rHipX - (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
+                    val rSprintFootY = rHipY + legSegLength * 1.55f - (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
+
+                    val rKneX = rIdleKneeX * (1f - mF) + rSprintKneeX * mF
+                    val rKneY = rIdleKneeY * (1f - mF) + rSprintKneeY * mF
+                    val rFotX = rIdleFootX * (1f - mF) + rSprintFootX * mF
+                    val rFotY = rIdleFootY * (1f - mF) + rSprintFootY * mF
+
+                    // Draw joints and limbs based on interactive design choices
+                    when (selectedStyle) {
+                        "Cyber Neon" -> {
+                            val neonPurple = Brush.linearGradient(listOf(Color(0xFFD0BCFF), Color(0xFF381E72)))
+                            val neonGreen = Brush.linearGradient(listOf(Color(0xFF7DFFB3), Color(0xFF0F766E)))
+                            val mainPurple = Color(0xFFD0BCFF)
+
+                            // Segmented micro robo vertebral columns
+                            val steps = 4
+                            for (i in 0..steps) {
+                                val t = i.toFloat() / steps
+                                val px = basePelvisX + (neckX - basePelvisX) * t
+                                val py = basePelvisY + (neckY - basePelvisY) * t
+                                drawCircle(
+                                    color = mainPurple.copy(alpha = 0.82f),
+                                    radius = (3.8f - t * 1.3f) * 1.5f * 1.dp.toPx(),
+                                    center = Offset(px, py)
+                                )
+                            }
+                            drawLine(Color(0xFFD0BCFF).copy(alpha = 0.45f), Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 2.8f * 1.dp.toPx())
+
+                            // Clavicle layout
+                            drawLine(Color(0xFFD0BCFF).copy(alpha = 0.65f), Offset(lShldX, lShldY), Offset(rShldX, rShldY), strokeWidth = 4.5f * 1.dp.toPx())
+                            drawLine(Color(0xFF49454F), Offset(lHipX, lHipY), Offset(rHipX, rHipY), strokeWidth = 3.5f * 1.dp.toPx())
+
+                            // Left Arm
+                            drawLine(neonPurple, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 3f * 1.dp.toPx())
+                            drawLine(neonPurple, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 2.3f * 1.dp.toPx())
+                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(lElbX, lElbY))
+                            drawCircle(Color(0xFFD0BCFF), 2.8f * 1.dp.toPx(), Offset(lHndX, lHndY))
+
+                            // Right Arm
+                            drawLine(neonPurple, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 3f * 1.dp.toPx())
+                            drawLine(neonPurple, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 2.3f * 1.dp.toPx())
+                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(rElbX, rElbY))
+                            drawCircle(Color(0xFFD0BCFF), 2.8f * 1.dp.toPx(), Offset(rHndX, rHndY))
+
+                            // Left Leg
+                            drawLine(neonGreen, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 3.8f * 1.dp.toPx())
+                            drawLine(neonGreen, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 3f * 1.dp.toPx())
+                            drawCircle(Color(0xFFD0BCFF), 3.8f * 1.dp.toPx(), Offset(lKneX, lKneY))
+                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(lFotX, lFotY))
+
+                            // Right Leg
+                            drawLine(neonGreen, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 3.8f * 1.dp.toPx())
+                            drawLine(neonGreen, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 3f * 1.dp.toPx())
+                            drawCircle(Color(0xFFD0BCFF), 3.8f * 1.dp.toPx(), Offset(rKneX, rKneY))
+                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(rFotX, rFotY))
+
+                            // Custom glowing visor head
+                            drawCircle(Color(0xFF1C1B1F), headRadius, Offset(headX, headY))
+                            drawCircle(Color(0xFFD0BCFF), headRadius, Offset(headX, headY), style = Stroke(width = 2f * 1.dp.toPx()))
+                            drawRoundRect(
+                                color = Color(0xFF7DFFB3),
+                                topLeft = Offset(headX - headRadius * 0.7f, headY - 2.8f * 1.dp.toPx()),
+                                size = androidx.compose.ui.geometry.Size(headRadius * 1.4f, 4.5f * 1.dp.toPx()),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.8f * 1.dp.toPx())
+                            )
+                        }
+
+                        "Athletic" -> {
+                            val activeOrange = Color(0xFFFF8F00)
+                            val coreGray = Color(0xFF49454F)
+                            val corePulseHeart = Color(0xFFFF5252)
+
+                            // Head details
+                            drawCircle(activeOrange, headRadius * 0.9f, Offset(headX, headY))
+                            drawCircle(Color.White, headRadius * 0.35f, Offset(headX + (chestLeanX * 0.1f), headY))
+
+                            // Active Heart sensor glow
+                            val scale = 1.0f + 0.12f * kotlin.math.sin(cyclePhase * 2f)
+                            drawCircle(
+                                color = corePulseHeart.copy(alpha = 0.22f),
+                                radius = 9f * 1.dp.toPx() * scale,
+                                center = Offset(neckX, neckY + 11.dp.toPx())
+                            )
+                            drawCircle(
+                                color = corePulseHeart,
+                                radius = 3.5f * 1.dp.toPx() * scale,
+                                center = Offset(neckX, neckY + 11.dp.toPx())
+                            )
+
+                            // Vertebral rod
+                            drawLine(coreGray, Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 6f * 1.dp.toPx())
+
+                            // Arms
+                            drawLine(activeOrange, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 3.8f * 1.dp.toPx())
+                            drawLine(activeOrange, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 2.8f * 1.dp.toPx())
+                            drawLine(activeOrange, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 3.8f * 1.dp.toPx())
+                            drawLine(activeOrange, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 2.8f * 1.dp.toPx())
+
+                            // Legs
+                            drawLine(coreGray, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 4.8f * 1.dp.toPx())
+                            drawLine(coreGray, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 3.8f * 1.dp.toPx())
+                            drawLine(coreGray, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 4.8f * 1.dp.toPx())
+                            drawLine(coreGray, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 3.8f * 1.dp.toPx())
+
+                            // Small Shoes at feet positions
+                            drawRect(
+                                color = activeOrange,
+                                topLeft = Offset(lFotX - 4.5f * 1.dp.toPx(), lFotY - 1f * 1.dp.toPx()),
+                                size = androidx.compose.ui.geometry.Size(9f * 1.dp.toPx(), 3.5f * 1.dp.toPx())
+                            )
+                            drawRect(
+                                color = activeOrange,
+                                topLeft = Offset(rFotX - 4.5f * 1.dp.toPx(), rFotY - 1f * 1.dp.toPx()),
+                                size = androidx.compose.ui.geometry.Size(9f * 1.dp.toPx(), 3.5f * 1.dp.toPx())
+                            )
+                        }
+
+                        else -> { // Minimalist Skeleton wireframe
+                            val lineOfMeshColor = Color(0xFFE6E1E5)
+
+                            drawLine(lineOfMeshColor, Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 1.29f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(rShldX, rShldY), strokeWidth = 1.25f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(rHipX, rHipY), strokeWidth = 1.25f * 1.dp.toPx())
+
+                            drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 1.1f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 0.95f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 1.1f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 0.95f * 1.dp.toPx())
+
+                            drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 1.1f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 0.95f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 1.1f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 0.95f * 1.dp.toPx())
+
+                            // Wireframe crosshead circle
+                            drawCircle(lineOfMeshColor, headRadius * 0.8f, Offset(headX, headY), style = Stroke(width = 0.95f * 1.dp.toPx()))
+                            drawLine(lineOfMeshColor, Offset(headX, headY - headRadius*0.8f), Offset(headX, headY + headRadius*0.8f), strokeWidth = 0.5f * 1.dp.toPx())
+                            drawLine(lineOfMeshColor, Offset(headX - headRadius*0.8f, headY), Offset(headX + headRadius*0.8f, headY), strokeWidth = 0.5f * 1.dp.toPx())
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sub footer text diagnostic status tracker
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1C1B1F))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "3D ORIENTATION LIVE",
-                color = Color(0xFFD0BCFF),
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.BottomStart)
-            )
-            
-            Text(
-                text = "P: ${"%.1f°".format(rotX)} | R: ${"%.1f°".format(rotY)}",
+                text = "SYSTEM STATUS: SECURE TELEMETRY FEEDS LINKED",
                 color = Color(0xFFCAC4D0),
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.align(Alignment.BottomEnd)
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "DAMPED FILTER: ON",
+                color = Color(0xFF7DFFB3),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
             )
         }
     }
