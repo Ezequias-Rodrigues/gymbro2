@@ -550,12 +550,12 @@ fun OrientationVisualizer(
     // Local calibration states to permit manual centering based on user phone posture
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
-    var offsetZBy98 by remember { mutableStateOf(0f) } // normalized around gravity (9.8 m/s2)
+    var offsetZ by remember { mutableStateOf(0f) } // normalized linear offset
 
     // Calibrated physical readings
     val calValueX = imuData.accelX - offsetX
     val calValueY = imuData.accelY - offsetY
-    val calValueZ = imuData.accelZ - offsetZBy98 // centered around gravity
+    val calValueZ = imuData.accelZ - offsetZ // centered around zero linear accel
 
     // Smooth physics animated states using damping springs to prevent jitter
     val smoothAccelX by animateFloatAsState(
@@ -590,22 +590,38 @@ fun OrientationVisualizer(
         label = "smooth_gyro_z"
     )
 
-    // Compute variance from static Earth gravity (magnitude deviation)
-    val diffX = calValueX
-    val diffY = calValueY
-    val diffZ = calValueZ - 9.8f
-    val motionMagnitude = kotlin.math.sqrt(diffX * diffX + diffY * diffY + diffZ * diffZ)
+    // Compute variance from static linear acceleration (magnitude deviation)
+    val motionMagnitude = kotlin.math.sqrt(calValueX * calValueX + calValueY * calValueY + calValueZ * calValueZ)
     val angularSpeed = kotlin.math.abs(imuData.gyroX) + kotlin.math.abs(imuData.gyroY) + kotlin.math.abs(imuData.gyroZ)
+
+    // Check for jump gesture trigger and initiate jumping jacks
+    var jumpDetectedTime by remember { mutableStateOf(0L) }
+    val curTime = System.currentTimeMillis()
+    
+    // Jump trigger: dynamic linear acceleration magnitude > 3.8 m/s²
+    if (motionMagnitude > 3.8f && curTime - jumpDetectedTime > 1500) {
+        jumpDetectedTime = curTime
+    }
+    
+    val timeSinceJump = curTime - jumpDetectedTime
+    val isJacking = timeSinceJump < 1200 // Complete jumping jack takes 1200ms
+    val jackFactor = if (isJacking) {
+        kotlin.math.sin((timeSinceJump.toFloat() / 1200f) * Math.PI.toFloat())
+    } else {
+        0f
+    }
 
     // Dynamic user motion states logic
     val statusText = when {
+        isJacking -> "SAUTANDO: POLICHINELO 🤸"
         motionMagnitude > 4.5f || angularSpeed > 2.2f -> "CORRENDO / ACELERADO ⚡"
-        motionMagnitude > 1.6f || angularSpeed > 1.2f -> "ANDANDO / MOVIMENTO 🚶"
-        motionMagnitude > 0.5f || angularSpeed > 0.4f -> "INCLINANDO / SUAVE 🍃"
+        motionMagnitude > 1.2f || angularSpeed > 1.0f -> "ANDANDO / MOVIMENTO 🚶"
+        motionMagnitude > 0.3f || angularSpeed > 0.3f -> "INCLINANDO / SUAVE 🍃"
         else -> "REPOUSO ABSOLUTO 😴"
     }
 
     val statusBadgeColor = when {
+        statusText.contains("🤸") -> Color(0xFFFBBF24) // Golden Amber for jumping jacks
         statusText.contains("⚡") -> Color(0xFF7DFFB3) // Glowing light emerald
         statusText.contains("🚶") -> Color(0xFFD0BCFF) // Accent violet
         statusText.contains("🍃") -> Color(0xFFE8DEF8) // Soft lavender
@@ -681,7 +697,7 @@ fun OrientationVisualizer(
                 onClick = {
                     offsetX = imuData.accelX
                     offsetY = imuData.accelY
-                    offsetZBy98 = imuData.accelZ - 9.8f
+                    offsetZ = imuData.accelZ
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF1C1B1F),
@@ -799,11 +815,15 @@ fun OrientationVisualizer(
                 // Twisting vector maps from Gyro Z
                 val twistAngle = (smoothGyroZ * 14f).coerceIn(-28f, 28f)
 
-                // Joints Calculation coordinates
-                val basePelvisX = w / 2f
-                val basePelvisY = midY + 12.dp.toPx()
+                // Inertia pushes the trunk / pelvis center opposite to physical acceleration
+                val inertiaShiftX = (-smoothAccelX * 12f).coerceIn(-50f, 50f)
+                val inertiaShiftY = (smoothAccelY * 12f).coerceIn(-40f, 40f)
 
-                val neckX = w / 2f + chestLeanX
+                // Joints Calculation coordinates
+                val basePelvisX = (w / 2f) + inertiaShiftX
+                val basePelvisY = midY + 12.dp.toPx() + inertiaShiftY
+
+                val neckX = (w / 2f) + chestLeanX + inertiaShiftX
                 val neckY = basePelvisY - spineHeight + chestLeanY
 
                 // Shoulder joint limits
@@ -892,6 +912,48 @@ fun OrientationVisualizer(
                 val rFotX = rIdleFootX * (1f - mF) + rSprintFootX * mF
                 val rFotY = rIdleFootY * (1f - mF) + rSprintFootY * mF
 
+                // --- JUMPING JACKS TARGETS OVERLAY ---
+                val jackLHandX = basePelvisX - 32.dp.toPx()
+                val jackLHandY = neckY - 24.dp.toPx()
+                val jackLElboX = basePelvisX - 24.dp.toPx()
+                val jackLElboY = neckY - 8.dp.toPx()
+
+                val jackRHandX = basePelvisX + 32.dp.toPx()
+                val jackRHandY = neckY - 24.dp.toPx()
+                val jackRElboX = basePelvisX + 24.dp.toPx()
+                val jackRElboY = neckY - 8.dp.toPx()
+
+                val jackLFootX = lHipX - 18.dp.toPx()
+                val jackLFootY = basePelvisY + legSegLength * 1.8f
+                val jackLKneeX = lHipX - 9.dp.toPx()
+                val jackLKneeY = basePelvisY + legSegLength * 0.9f
+
+                val jackRFootX = rHipX + 18.dp.toPx()
+                val jackRFootY = basePelvisY + legSegLength * 1.8f
+                val jackRKneeX = rHipX + 9.dp.toPx()
+                val jackRKneeY = basePelvisY + legSegLength * 0.9f
+
+                // Blend joints with jumping jacks based on jackFactor
+                val fLElbX = lElbX * (1f - jackFactor) + jackLElboX * jackFactor
+                val fLElbY = lElbY * (1f - jackFactor) + jackLElboY * jackFactor
+                val fLHndX = lHndX * (1f - jackFactor) + jackLHandX * jackFactor
+                val fLHndY = lHndY * (1f - jackFactor) + jackLHandY * jackFactor
+
+                val fRElbX = rElbX * (1f - jackFactor) + jackRElboX * jackFactor
+                val fRElbY = rElbY * (1f - jackFactor) + jackRElboY * jackFactor
+                val fRHndX = rHndX * (1f - jackFactor) + jackRHandX * jackFactor
+                val fRHndY = rHndY * (1f - jackFactor) + jackRHandY * jackFactor
+
+                val fLKneX = lKneX * (1f - jackFactor) + jackLKneeX * jackFactor
+                val fLKneY = lKneY * (1f - jackFactor) + jackLKneeY * jackFactor
+                val fLFotX = lFotX * (1f - jackFactor) + jackLFootX * jackFactor
+                val fLFotY = lFotY * (1f - jackFactor) + jackLFootY * jackFactor
+
+                val fRKneX = rKneX * (1f - jackFactor) + jackRKneeX * jackFactor
+                val fRKneY = rKneY * (1f - jackFactor) + jackRKneeY * jackFactor
+                val fRFotX = rFotX * (1f - jackFactor) + jackRFootX * jackFactor
+                val fRFotY = rFotY * (1f - jackFactor) + jackRFootY * jackFactor
+
                 // Draw exclusive Minimalist Skeleton Wireframe
                 val lineOfMeshColor = Color(0xFFD0BCFF) // Soft premium purple
                 val jointsColor = Color(0xFF7DFFB3) // Glowing neon emerald
@@ -903,35 +965,35 @@ fun OrientationVisualizer(
                 drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(rHipX, rHipY), strokeWidth = 1.4f * 1.dp.toPx())
 
                 // Left Arm
-                drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 1.2f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 1.0f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(fLElbX, fLElbY), strokeWidth = 1.2f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(fLElbX, fLElbY), Offset(fLHndX, fLHndY), strokeWidth = 1.0f * 1.dp.toPx())
 
                 // Right Arm
-                drawLine(lineOfMeshColor, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 1.2f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 1.0f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(rShldX, rShldY), Offset(fRElbX, fRElbY), strokeWidth = 1.2f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(fRElbX, fRElbY), Offset(fRHndX, fRHndY), strokeWidth = 1.0f * 1.dp.toPx())
 
                 // Left Leg
-                drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 1.4f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 1.1f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(fLKneX, fLKneY), strokeWidth = 1.4f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(fLKneX, fLKneY), Offset(fLFotX, fLFotY), strokeWidth = 1.1f * 1.dp.toPx())
 
                 // Right Leg
-                drawLine(lineOfMeshColor, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 1.4f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 1.1f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(rHipX, rHipY), Offset(fRKneX, fRKneY), strokeWidth = 1.4f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(fRKneX, fRKneY), Offset(fRFotX, fRFotY), strokeWidth = 1.1f * 1.dp.toPx())
 
                 // Joint Nodes
                 drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(lShldX, lShldY))
                 drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(rShldX, rShldY))
-                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(lElbX, lElbY))
-                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(rElbX, rElbY))
-                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(lHndX, lHndY))
-                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(rHndX, rHndY))
+                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(fLElbX, fLElbY))
+                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(fRElbX, fRElbY))
+                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(fLHndX, fLHndY))
+                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(fRHndX, fRHndY))
 
                 drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(lHipX, lHipY))
                 drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(rHipX, rHipY))
-                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(lKneX, lKneY))
-                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(rKneX, rKneY))
-                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(lFotX, lFotY))
-                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(rFotX, rFotY))
+                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(fLKneX, fLKneY))
+                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(fRKneX, fRKneY))
+                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(fLFotX, fLFotY))
+                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(fRFotX, fRFotY))
 
                 // Wireframe skull and visor inside
                 drawCircle(lineOfMeshColor, headRadius * 0.85f, Offset(headX, headY), style = Stroke(width = 1.2f * 1.dp.toPx()))

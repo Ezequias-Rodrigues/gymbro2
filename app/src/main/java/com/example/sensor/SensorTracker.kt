@@ -50,10 +50,12 @@ class SensorTracker(private val context: Context) : SensorEventListener {
     private val _isSimulating = MutableStateFlow(false)
     val isSimulating: StateFlow<Boolean> = _isSimulating.asStateFlow()
 
+    private val gravity = floatArrayOf(0f, 0f, 9.8f)
+
     // Current buffers
     private var curAccelX = 0f
     private var curAccelY = 0f
-    private var curAccelZ = 9.8f
+    private var curAccelZ = 0f
     private var curGyroX = 0f
     private var curGyroY = 0f
     private var curGyroZ = 0f
@@ -80,9 +82,16 @@ class SensorTracker(private val context: Context) : SensorEventListener {
 
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
-                curAccelX = event.values[0]
-                curAccelY = event.values[1]
-                curAccelZ = event.values[2]
+                val alpha = 0.85f // Filter constant (higher means slower adaptation to gravity vector shifts)
+                // Low-pass filter to capture gravity components
+                gravity[0] = alpha * gravity[0] + (1 - alpha) * event.values[0]
+                gravity[1] = alpha * gravity[1] + (1 - alpha) * event.values[1]
+                gravity[2] = alpha * gravity[2] + (1 - alpha) * event.values[2]
+
+                // Remove gravity, yielding pure linear acceleration (forces acting on inertia)
+                curAccelX = event.values[0] - gravity[0]
+                curAccelY = event.values[1] - gravity[1]
+                curAccelZ = event.values[2] - gravity[2]
             }
             Sensor.TYPE_GYROSCOPE -> {
                 curGyroX = event.values[0]
