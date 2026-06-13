@@ -48,7 +48,7 @@ class StreamClient {
         _successCount.value = 0
         _errorCount.value = 0
         
-        addLog("Starting IMU Client Stream to: $targetUrl")
+        addLog("Iniciando transmissão de dados para: $targetUrl")
 
         activeJob = scope.launch {
             val mediaType = "application/json; charset=utf-8".toMediaType()
@@ -71,23 +71,23 @@ class StreamClient {
                             _successCount.value += 1
                             val bodyStr = response.body?.string() ?: ""
                             val cleanBody = if (bodyStr.length > 80) bodyStr.take(80) + "..." else bodyStr
-                            addLog("POST Success [${duration}ms]: Code ${response.code} -> $cleanBody")
+                            addLog("Sucesso no POST [${duration}ms]: Código ${response.code} -> $cleanBody")
                         } else {
                             _errorCount.value += 1
                             val bodyErr = response.body?.string() ?: ""
-                            addLog("POST Fail [${duration}ms]: Code ${response.code} -> $bodyErr")
+                            addLog("Falha no POST [${duration}ms]: Código ${response.code} -> $bodyErr")
                         }
                     }
                 } catch (e: IllegalArgumentException) {
                     _errorCount.value += 1
-                    addLog("Client URL Error: Invalid URL structure")
+                    addLog("Erro de URL: Estrutura de URL inválida")
                     delay(3000) // Delay more if URL itself is completely broken
                 } catch (e: IOException) {
                     _errorCount.value += 1
-                    addLog("Network Error: ${e.message ?: "Connection timed out"}")
+                    addLog("Erro de Rede: ${e.message ?: "Conexão expirou"}")
                 } catch (e: Exception) {
                     _errorCount.value += 1
-                    addLog("Unexpected Error: ${e.message}")
+                    addLog("Erro Inesperado: ${e.message}")
                 }
                 delay(intervalMs)
             }
@@ -98,7 +98,7 @@ class StreamClient {
         activeJob?.cancel()
         activeJob = null
         _isStreaming.value = false
-        addLog("Stream stopped by user.")
+        addLog("Transmissão finalizada pelo usuário.")
     }
 
     private fun addLog(message: String) {

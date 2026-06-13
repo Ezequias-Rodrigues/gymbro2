@@ -172,7 +172,7 @@ fun MainScreen(
                         )
 
                         TerminalLogCard(
-                            title = "Outgoing Stream Logs",
+                            title = "Logs de Envio de Dados",
                             logs = streamLogs,
                             testTag = "stream_terminal"
                         )
@@ -192,32 +192,32 @@ fun MainScreen(
                             },
                             onCopyUrl = { url ->
                                 clipboardManager.setText(AnnotatedString(url))
-                                Toast.makeText(context, "Copied URL: $url", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "URL Copiada: $url", Toast.LENGTH_SHORT).show()
                             }
                         )
 
                         // Displays JSON currently served (GET /sensor-data)
                         DataViewCard(
-                            title = "Raw JSON Telemetry (To Be Served)",
+                            title = "Telemetria JSON Bruta (Fornecida)",
                             jsonContent = if (lastServedJson.isEmpty()) imuState.toJsonString() else lastServedJson,
                             badgeColor = Color(0xFFD0BCFF),
                             badgeText = "GET /sensor-data",
-                            infoText = "This is the current state that local web clients receive when fetching.",
+                            infoText = "Este é o estado atual que os clientes web locais recebem ao fazer a requisição.",
                             testTag = "served_json_view"
                         )
 
                         // Displays JSON received via POST to /post-data if applicable
                         DataViewCard(
-                            title = "Raw JSON Telemetry (Last Received)",
-                            jsonContent = if (lastReceivedJson.isEmpty()) """{"message": "No external POST received yet.", "route": "POST /post-data"}""" else lastReceivedJson,
+                            title = "Telemetria JSON Bruta (Última Recebida)",
+                            jsonContent = if (lastReceivedJson.isEmpty()) """{"mensagem": "Nenhum POST externo recebido ainda.", "rota": "POST /post-data"}""" else lastReceivedJson,
                             badgeColor = Color(0xFFB3261E),
                             badgeText = "POST /post-data",
-                            infoText = "External applications can HTTP POST raw JSON here to verify connectivity.",
+                            infoText = "Aplicações externas podem fazer um HTTP POST com JSON bruto aqui para verificar a conectividade.",
                             testTag = "received_json_view"
                         )
 
                         TerminalLogCard(
-                            title = "Embedded Server Activity Logs",
+                            title = "Logs de Atividades do Servidor",
                             logs = serverLogs,
                             testTag = "server_terminal"
                         )
@@ -263,20 +263,20 @@ fun HeaderComponent(
             ) {
                 Icon(
                     imageVector = Icons.Default.Settings,
-                    contentDescription = "Sensors Node",
+                    contentDescription = "Nó de Sensores",
                     tint = Color(0xFF381E72),
                     modifier = Modifier.size(24.dp)
                 )
             }
             Column {
                 Text(
-                    text = "IMU Node",
+                    text = "Nó de Sensores (IMU)",
                     color = Color(0xFFE6E1E5),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = if (isStreaming) "STREAM ACTIVE" else if (isServerRunning) "SERVER RUNNING" else "SERVICE IDLE",
+                    text = if (isStreaming) "TRANSMISSÃO ATIVA" else if (isServerRunning) "SERVIDOR ATIVO" else "SISTEMA INATIVO",
                     color = if (isStreaming || isServerRunning) Color(0xFF7DFFB3) else Color(0xFFCAC4D0),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -288,12 +288,12 @@ fun HeaderComponent(
         // Live connection pill indicators with Elegant Dark styling
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusPill(
-                label = "STREAM",
+                label = "ENVIO",
                 isActive = isStreaming,
                 activeColor = Color(0xFFD0BCFF)
             )
             StatusPill(
-                label = "SERVER",
+                label = "HOST",
                 isActive = isServerRunning,
                 activeColor = Color(0xFFE8DEF8)
             )
@@ -367,7 +367,7 @@ fun TabSwitcherComponent(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val tabs = listOf("Sensor Stream", "Server & Data View")
+        val tabs = listOf("Leitura dos Sensores", "Acesso Servidor Local")
         tabs.forEachIndexed { index, title ->
             val isSelected = selectedTab == index
             val bgColor by animateColorAsState(
@@ -447,7 +447,7 @@ fun FooterStatusBar(
             )
             
             Text(
-                text = if (isStreaming) "TX: ${targetUrl.take(28)}${if (targetUrl.length > 28) "..." else ""}" else "TX DISCONNECTED",
+                text = if (isStreaming) "TX: ${targetUrl.take(28)}${if (targetUrl.length > 28) "..." else ""}" else "TX DESCONECTADO",
                 color = Color(0xFFCAC4D0),
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
@@ -461,7 +461,7 @@ fun FooterStatusBar(
         ) {
             Icon(
                 imageVector = Icons.Default.Refresh,
-                contentDescription = "Syncing",
+                contentDescription = "Sincronizando",
                 tint = Color(0xFFD0BCFF),
                 modifier = Modifier.size(14.dp)
             )
@@ -486,9 +486,6 @@ fun OrientationVisualizer(
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
     var offsetZBy98 by remember { mutableStateOf(0f) } // normalized around gravity (9.8 m/s2)
-
-    // Interactive rendering avatar selection styles
-    var selectedStyle by remember { mutableStateOf("Cyber Neon") }
 
     // Calibrated physical readings
     val calValueX = imuData.accelX - offsetX
@@ -537,10 +534,10 @@ fun OrientationVisualizer(
 
     // Dynamic user motion states logic
     val statusText = when {
-        motionMagnitude > 4.5f || angularSpeed > 2.2f -> "RUNNING / SPRINTING ⚡"
-        motionMagnitude > 1.6f || angularSpeed > 1.2f -> "WALKING / OSCILLATING 🚶"
-        motionMagnitude > 0.5f || angularSpeed > 0.4f -> "GENTLE LEAN / SWAYING 🍃"
-        else -> "PERFECT STILLNESS 😴"
+        motionMagnitude > 4.5f || angularSpeed > 2.2f -> "CORRENDO / ACELERADO ⚡"
+        motionMagnitude > 1.6f || angularSpeed > 1.2f -> "ANDANDO / MOVIMENTO 🚶"
+        motionMagnitude > 0.5f || angularSpeed > 0.4f -> "INCLINANDO / SUAVE 🍃"
+        else -> "REPOUSO ABSOLUTO 😴"
     }
 
     val statusBadgeColor = when {
@@ -590,7 +587,7 @@ fun OrientationVisualizer(
         ) {
             Column {
                 Text(
-                    text = "MOTION HUMAN CHARACTER LIVE",
+                    text = "VISUALIZAÇÃO DE ESQUELETO (IMU)",
                     color = Color(0xFFD0BCFF),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
@@ -632,433 +629,292 @@ fun OrientationVisualizer(
             ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
-                    contentDescription = "Zero Center Balance",
+                    contentDescription = "Calibrar",
                     tint = Color(0xFFD0BCFF),
                     modifier = Modifier.size(13.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("ZERO CENTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("CALIBRAR", fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         HorizontalDivider(color = Color(0xFF49454F), thickness = 0.5.dp)
 
-        // --- CORE GRID WORKSPACE: Options Panel Left, Central Drawing Box Right ---
-        Row(
+        // --- VISUALIZATION BOX WORKSPACE (Now spans FULL width smoothly) ---
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(250.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                .height(260.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1C1B1F))
+                .border(1.dp, Color(0xFF49454F), RoundedCornerShape(20.dp)),
+            contentAlignment = Alignment.Center
         ) {
-            // Options Column
+            // Circular target radar background guides
+            Canvas(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                val w = size.width
+                val h = size.height
+                
+                val radX = w / 2f
+                val radY = h * 0.45f
+
+                // Draw static radial guidelines
+                drawCircle(
+                    color = Color(0xFFD0BCFF).copy(alpha = 0.04f),
+                    radius = 75.dp.toPx(),
+                    center = Offset(radX, radY),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawCircle(
+                    color = Color(0xFFD0BCFF).copy(alpha = 0.07f),
+                    radius = 45.dp.toPx(),
+                    center = Offset(radX, radY),
+                    style = Stroke(
+                        width = 0.5f * 1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                    )
+                )
+                
+                drawLine(
+                    color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
+                    start = Offset(radX, 10.dp.toPx()),
+                    end = Offset(radX, h - 10.dp.toPx()),
+                    strokeWidth = 1.dp.toPx()
+                )
+                drawLine(
+                    color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
+                    start = Offset(10.dp.toPx(), radY),
+                    end = Offset(w - 10.dp.toPx(), radY),
+                    strokeWidth = 1.dp.toPx()
+                )
+
+                // Draw a micro Bubble Level at the bottom to represent lateral physical leans
+                val levelCenterY = h - 22.dp.toPx()
+                val levelCenterX = w / 2f
+                drawCircle(
+                    color = Color(0xFFCAC4D0).copy(alpha = 0.15f),
+                    radius = 11.dp.toPx(),
+                    center = Offset(levelCenterX, levelCenterY),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                
+                val bubbleLimit = 9.dp.toPx()
+                val bOfsX = (-smoothAccelX * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
+                val bOfsY = (smoothAccelY * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
+                drawCircle(
+                    color = Color(0xFF7DFFB3),
+                    radius = 3.dp.toPx(),
+                    center = Offset(levelCenterX + bOfsX, levelCenterY + bOfsY)
+                )
+            }
+
+            // Custom Mannequin Draw Frame
+            Canvas(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                val w = size.width
+                val h = size.height
+
+                // Dimensions definitions
+                val midY = h * 0.44f // Waist position
+                val spineHeight = 35.dp.toPx()
+                val headRadius = 10.dp.toPx()
+                val shoulderWidth = 18.dp.toPx()
+                val armSegLength = 20.dp.toPx()
+                val legSegLength = 26.dp.toPx()
+                val hipWidth = 11.dp.toPx()
+
+                // Horizontal tilts maps from X axis gravity vector acceleration
+                val chestLeanX = (-smoothAccelX * 3.2f).coerceIn(-40f, 40f) // offset scale
+                // Pitch maps from Y axis gravity vector
+                val chestLeanY = (smoothAccelY * -2.2f).coerceIn(-22f, 22f)
+
+                // Twisting vector maps from Gyro Z
+                val twistAngle = (smoothGyroZ * 14f).coerceIn(-28f, 28f)
+
+                // Joints Calculation coordinates
+                val basePelvisX = w / 2f
+                val basePelvisY = midY + 12.dp.toPx()
+
+                val neckX = w / 2f + chestLeanX
+                val neckY = basePelvisY - spineHeight + chestLeanY
+
+                // Shoulder joint limits
+                val lShldX = neckX - shoulderWidth + twistAngle * 0.2f
+                val lShldY = neckY + twistAngle * 0.1f
+                val rShldX = neckX + shoulderWidth - twistAngle * 0.2f
+                val rShldY = neckY - twistAngle * 0.1f
+
+                // Floating Human Head
+                val headX = neckX + (chestLeanX * 0.22f)
+                val headY = neckY - headRadius - 5.dp.toPx()
+
+                // Hip joints
+                val lHipX = basePelvisX - hipWidth
+                val lHipY = basePelvisY
+                val rHipX = basePelvisX + hipWidth
+                val rHipY = basePelvisY
+
+                // Motion Factor interpolation LERP
+                val mF = smoothMovementFactor
+
+                // --- LEFT ARM MOVEMENT GENERATOR ---
+                // Idle sway coordinates
+                val lIdleElboX = lShldX - 4.dp.toPx() + (smoothGyroY * 4f)
+                val lIdleElboY = lShldY + armSegLength
+                val lIdleHandX = lIdleElboX - 2.dp.toPx() + (smoothGyroZ * 7f)
+                val lIdleHandY = lIdleElboY + armSegLength + (smoothGyroX * 3f)
+
+                // Sprinting oscillation coordinates
+                val lSprintElboX = lShldX - 7.dp.toPx() + (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
+                val lSprintElboY = lShldY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
+                val lSprintHandX = lShldX - 14.dp.toPx() + (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
+                val lSprintHandY = lSprintElboY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
+
+                // Final LERPed joints
+                val lElbX = lIdleElboX * (1f - mF) + lSprintElboX * mF
+                val lElbY = lIdleElboY * (1f - mF) + lSprintElboY * mF
+                val lHndX = lIdleHandX * (1f - mF) + lSprintHandX * mF
+                val lHndY = lIdleHandY * (1f - mF) + lSprintHandY * mF
+
+                // --- RIGHT ARM MOVEMENT GENERATOR ---
+                val rIdleElboX = rShldX + 4.dp.toPx() - (smoothGyroY * 4f)
+                val rIdleElboY = rShldY + armSegLength
+                val rIdleHandX = rIdleElboX + 2.dp.toPx() - (smoothGyroZ * 7f)
+                val rIdleHandY = rIdleElboY + armSegLength - (smoothGyroX * 3f)
+
+                val rSprintElboX = rShldX + 7.dp.toPx() - (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
+                val rSprintElboY = rShldY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
+                val rSprintHandX = rShldX + 14.dp.toPx() - (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
+                val rSprintHandY = rSprintElboY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
+
+                val rElbX = rIdleElboX * (1f - mF) + rSprintElboX * mF
+                val rElbY = rIdleElboY * (1f - mF) + rSprintElboY * mF
+                val rHndX = rIdleHandX * (1f - mF) + rSprintHandX * mF
+                val rHndY = rIdleHandY * (1f - mF) + rSprintHandY * mF
+
+                // --- LEFT LEG MOVEMENT GENERATOR ---
+                val lIdleKneeX = lHipX - 1.dp.toPx() - (smoothAccelX * 0.7f)
+                val lIdleKneeY = lHipY + legSegLength
+                val lIdleFootX = lIdleKneeX - 1.dp.toPx() - (smoothAccelX * 1.3f)
+                val lIdleFootY = lIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
+
+                val lSprintKneeX = lHipX + (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
+                val lSprintKneeY = lHipY + legSegLength * 0.78f + (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
+                val lSprintFootX = lHipX + (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
+                val lSprintFootY = lHipY + legSegLength * 1.55f + (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
+
+                val lKneX = lIdleKneeX * (1f - mF) + lSprintKneeX * mF
+                val lKneY = lIdleKneeY * (1f - mF) + lSprintKneeY * mF
+                val lFotX = lIdleFootX * (1f - mF) + lSprintFootX * mF
+                val lFotY = lIdleFootY * (1f - mF) + lSprintFootY * mF
+
+                // --- RIGHT LEG MOVEMENT GENERATOR ---
+                val rIdleKneeX = rHipX + 1.dp.toPx() - (smoothAccelX * 0.7f)
+                val rIdleKneeY = rHipY + legSegLength
+                val rIdleFootX = rIdleKneeX + 1.dp.toPx() - (smoothAccelX * 1.3f)
+                val rIdleFootY = rIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
+
+                val rSprintKneeX = rHipX - (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
+                val rSprintKneeY = rHipY + legSegLength * 0.78f - (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
+                val rSprintFootX = rHipX - (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
+                val rSprintFootY = rHipY + legSegLength * 1.55f - (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
+
+                val rKneX = rIdleKneeX * (1f - mF) + rSprintKneeX * mF
+                val rKneY = rIdleKneeY * (1f - mF) + rSprintKneeY * mF
+                val rFotX = rIdleFootX * (1f - mF) + rSprintFootX * mF
+                val rFotY = rIdleFootY * (1f - mF) + rSprintFootY * mF
+
+                // Draw exclusive Minimalist Skeleton Wireframe
+                val lineOfMeshColor = Color(0xFFD0BCFF) // Soft premium purple
+                val jointsColor = Color(0xFF7DFFB3) // Glowing neon emerald
+                val endpointsColor = Color(0xFFE6E1E5) // Cool white for extremities
+
+                // Bones
+                drawLine(lineOfMeshColor, Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 1.6f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(rShldX, rShldY), strokeWidth = 1.4f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(rHipX, rHipY), strokeWidth = 1.4f * 1.dp.toPx())
+
+                // Left Arm
+                drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 1.2f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 1.0f * 1.dp.toPx())
+
+                // Right Arm
+                drawLine(lineOfMeshColor, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 1.2f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 1.0f * 1.dp.toPx())
+
+                // Left Leg
+                drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 1.4f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 1.1f * 1.dp.toPx())
+
+                // Right Leg
+                drawLine(lineOfMeshColor, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 1.4f * 1.dp.toPx())
+                drawLine(lineOfMeshColor, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 1.1f * 1.dp.toPx())
+
+                // Joint Nodes
+                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(lShldX, lShldY))
+                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(rShldX, rShldY))
+                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(lElbX, lElbY))
+                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(rElbX, rElbY))
+                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(lHndX, lHndY))
+                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(rHndX, rHndY))
+
+                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(lHipX, lHipY))
+                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(rHipX, rHipY))
+                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(lKneX, lKneY))
+                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(rKneX, rKneY))
+                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(lFotX, lFotY))
+                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(rFotX, rFotY))
+
+                // Wireframe skull and visor inside
+                drawCircle(lineOfMeshColor, headRadius * 0.85f, Offset(headX, headY), style = Stroke(width = 1.2f * 1.dp.toPx()))
+                drawLine(jointsColor, Offset(headX - headRadius * 0.5f, headY), Offset(headX + headRadius * 0.5f, headY), strokeWidth = 1.8f * 1.dp.toPx())
+            }
+
+            // Real-Time HUD Statistics overlaid elegantly inside the corners
             Column(
                 modifier = Modifier
-                    .width(105.dp)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .align(Alignment.TopStart)
+                    .padding(14.dp)
             ) {
                 Text(
-                    text = "BODY MODELS",
-                    color = Color(0xFFCAC4D0),
-                    fontSize = 9.sp,
+                    text = "VEL. GIRO",
+                    color = Color(0xFF938F99),
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
                 )
-
-                val stylesList = listOf("Cyber Neon", "Athletic", "Skeleton")
-                stylesList.forEach { style ->
-                    val isStyleSelected = selectedStyle == style
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isStyleSelected) Color(0xFFE8DEF8) else Color(0xFF1C1B1F))
-                            .border(
-                                1.dp,
-                                if (isStyleSelected) Color(0xFFD0BCFF) else Color(0xFF49454F),
-                                RoundedCornerShape(12.dp)
-                            )
-                            .clickable { selectedStyle = style }
-                            .padding(vertical = 8.dp, horizontal = 8.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = when (style) {
-                                    "Cyber Neon" -> Icons.Default.Face
-                                    "Athletic" -> Icons.Default.Favorite
-                                    else -> Icons.Default.Build
-                                },
-                                contentDescription = style,
-                                tint = if (isStyleSelected) Color(0xFF1D192B) else Color(0xFFCAC4D0),
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = style,
-                                color = if (isStyleSelected) Color(0xFF1D192B) else Color(0xFFE6E1E5),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Real-time diagnostics details box
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1C1B1F))
-                        .padding(8.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("LEAN SPEED", color = Color(0xFF938F99), fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = "${"%.1f°/s".format(angularSpeed * 57.295f)}",
-                            color = Color(0xFF7DFFB3),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text("IMPACT G", color = Color(0xFF938F99), fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = "${"%.2f G".format(motionMagnitude / 9.81f)}",
-                            color = Color(0xFFD0BCFF),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                Text(
+                    text = "${"%.1f°/s".format(angularSpeed * 57.295f)}",
+                    color = Color(0xFF7DFFB3),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
-            // Human Body Visualizer Canvas Frame
-            Box(
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1C1B1F))
-                    .border(1.dp, Color(0xFF49454F), RoundedCornerShape(20.dp)),
-                contentAlignment = Alignment.Center
+                    .align(Alignment.TopEnd)
+                    .padding(14.dp),
+                horizontalAlignment = Alignment.End
             ) {
-                // Circular target radar background guides
-                Canvas(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    val w = size.width
-                    val h = size.height
-                    
-                    val radX = w / 2f
-                    val radY = h * 0.45f
-
-                    // Draw static radial guidelines
-                    drawCircle(
-                        color = Color(0xFFD0BCFF).copy(alpha = 0.04f),
-                        radius = 75.dp.toPx(),
-                        center = Offset(radX, radY),
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-                    drawCircle(
-                        color = Color(0xFFD0BCFF).copy(alpha = 0.07f),
-                        radius = 45.dp.toPx(),
-                        center = Offset(radX, radY),
-                        style = Stroke(
-                            width = 0.5f * 1.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                        )
-                    )
-                    
-                    drawLine(
-                        color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
-                        start = Offset(radX, 10.dp.toPx()),
-                        end = Offset(radX, h - 10.dp.toPx()),
-                        strokeWidth = 1.dp.toPx()
-                    )
-                    drawLine(
-                        color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
-                        start = Offset(10.dp.toPx(), radY),
-                        end = Offset(w - 10.dp.toPx(), radY),
-                        strokeWidth = 1.dp.toPx()
-                    )
-
-                    // Draw a micro Bubble Level at the bottom to represent lateral physical leans
-                    val levelCenterY = h - 22.dp.toPx()
-                    val levelCenterX = w / 2f
-                    drawCircle(
-                        color = Color(0xFFCAC4D0).copy(alpha = 0.15f),
-                        radius = 11.dp.toPx(),
-                        center = Offset(levelCenterX, levelCenterY),
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-                    
-                    val bubbleLimit = 9.dp.toPx()
-                    val bOfsX = (-smoothAccelX * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
-                    val bOfsY = (smoothAccelY * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
-                    drawCircle(
-                        color = Color(0xFF7DFFB3),
-                        radius = 3.dp.toPx(),
-                        center = Offset(levelCenterX + bOfsX, levelCenterY + bOfsY)
-                    )
-                }
-
-                // Custom Mannequin Draw Frame
-                Canvas(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    val w = size.width
-                    val h = size.height
-
-                    // Dimensions definitions
-                    val midY = h * 0.44f // Waist position
-                    val spineHeight = 35.dp.toPx()
-                    val headRadius = 10.dp.toPx()
-                    val shoulderWidth = 18.dp.toPx()
-                    val armSegLength = 20.dp.toPx()
-                    val legSegLength = 26.dp.toPx()
-                    val hipWidth = 11.dp.toPx()
-
-                    // Horizontal tilts maps from X axis gravity vector acceleration
-                    val chestLeanX = (-smoothAccelX * 3.2f).coerceIn(-40f, 40f) // offset scale
-                    // Pitch maps from Y axis gravity vector
-                    val chestLeanY = (smoothAccelY * -2.2f).coerceIn(-22f, 22f)
-
-                    // Twisting vector maps from Gyro Z
-                    val twistAngle = (smoothGyroZ * 14f).coerceIn(-28f, 28f)
-
-                    // Joints Calculation coordinates
-                    val basePelvisX = w / 2f
-                    val basePelvisY = midY + 12.dp.toPx()
-
-                    val neckX = w / 2f + chestLeanX
-                    val neckY = basePelvisY - spineHeight + chestLeanY
-
-                    // Shoulder joint limits
-                    val lShldX = neckX - shoulderWidth + twistAngle * 0.2f
-                    val lShldY = neckY + twistAngle * 0.1f
-                    val rShldX = neckX + shoulderWidth - twistAngle * 0.2f
-                    val rShldY = neckY - twistAngle * 0.1f
-
-                    // Floating Human Head
-                    val headX = neckX + (chestLeanX * 0.22f)
-                    val headY = neckY - headRadius - 5.dp.toPx()
-
-                    // Hip joints
-                    val lHipX = basePelvisX - hipWidth
-                    val lHipY = basePelvisY
-                    val rHipX = basePelvisX + hipWidth
-                    val rHipY = basePelvisY
-
-                    // Motion Factor interpolation LERP
-                    val mF = smoothMovementFactor
-
-                    // --- LEFT ARM MOVEMENT GENERATOR ---
-                    // Idle sway coordinates
-                    val lIdleElboX = lShldX - 4.dp.toPx() + (smoothGyroY * 4f)
-                    val lIdleElboY = lShldY + armSegLength
-                    val lIdleHandX = lIdleElboX - 2.dp.toPx() + (smoothGyroZ * 7f)
-                    val lIdleHandY = lIdleElboY + armSegLength + (smoothGyroX * 3f)
-
-                    // Sprinting oscillation coordinates
-                    val lSprintElboX = lShldX - 7.dp.toPx() + (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
-                    val lSprintElboY = lShldY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
-                    val lSprintHandX = lShldX - 14.dp.toPx() + (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
-                    val lSprintHandY = lSprintElboY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
-
-                    // Final LERPed joints
-                    val lElbX = lIdleElboX * (1f - mF) + lSprintElboX * mF
-                    val lElbY = lIdleElboY * (1f - mF) + lSprintElboY * mF
-                    val lHndX = lIdleHandX * (1f - mF) + lSprintHandX * mF
-                    val lHndY = lIdleHandY * (1f - mF) + lSprintHandY * mF
-
-                    // --- RIGHT ARM MOVEMENT GENERATOR ---
-                    val rIdleElboX = rShldX + 4.dp.toPx() - (smoothGyroY * 4f)
-                    val rIdleElboY = rShldY + armSegLength
-                    val rIdleHandX = rIdleElboX + 2.dp.toPx() - (smoothGyroZ * 7f)
-                    val rIdleHandY = rIdleElboY + armSegLength - (smoothGyroX * 3f)
-
-                    val rSprintElboX = rShldX + 7.dp.toPx() - (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
-                    val rSprintElboY = rShldY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
-                    val rSprintHandX = rShldX + 14.dp.toPx() - (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
-                    val rSprintHandY = rSprintElboY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
-
-                    val rElbX = rIdleElboX * (1f - mF) + rSprintElboX * mF
-                    val rElbY = rIdleElboY * (1f - mF) + rSprintElboY * mF
-                    val rHndX = rIdleHandX * (1f - mF) + rSprintHandX * mF
-                    val rHndY = rIdleHandY * (1f - mF) + rSprintHandY * mF
-
-                    // --- LEFT LEG MOVEMENT GENERATOR ---
-                    val lIdleKneeX = lHipX - 1.dp.toPx() - (smoothAccelX * 0.7f)
-                    val lIdleKneeY = lHipY + legSegLength
-                    val lIdleFootX = lIdleKneeX - 1.dp.toPx() - (smoothAccelX * 1.3f)
-                    val lIdleFootY = lIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
-
-                    val lSprintKneeX = lHipX + (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
-                    val lSprintKneeY = lHipY + legSegLength * 0.78f + (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
-                    val lSprintFootX = lHipX + (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
-                    val lSprintFootY = lHipY + legSegLength * 1.55f + (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
-
-                    val lKneX = lIdleKneeX * (1f - mF) + lSprintKneeX * mF
-                    val lKneY = lIdleKneeY * (1f - mF) + lSprintKneeY * mF
-                    val lFotX = lIdleFootX * (1f - mF) + lSprintFootX * mF
-                    val lFotY = lIdleFootY * (1f - mF) + lSprintFootY * mF
-
-                    // --- RIGHT LEG MOVEMENT GENERATOR ---
-                    val rIdleKneeX = rHipX + 1.dp.toPx() - (smoothAccelX * 0.7f)
-                    val rIdleKneeY = rHipY + legSegLength
-                    val rIdleFootX = rIdleKneeX + 1.dp.toPx() - (smoothAccelX * 1.3f)
-                    val rIdleFootY = rIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
-
-                    val rSprintKneeX = rHipX - (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
-                    val rSprintKneeY = rHipY + legSegLength * 0.78f - (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
-                    val rSprintFootX = rHipX - (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
-                    val rSprintFootY = rHipY + legSegLength * 1.55f - (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
-
-                    val rKneX = rIdleKneeX * (1f - mF) + rSprintKneeX * mF
-                    val rKneY = rIdleKneeY * (1f - mF) + rSprintKneeY * mF
-                    val rFotX = rIdleFootX * (1f - mF) + rSprintFootX * mF
-                    val rFotY = rIdleFootY * (1f - mF) + rSprintFootY * mF
-
-                    // Draw joints and limbs based on interactive design choices
-                    when (selectedStyle) {
-                        "Cyber Neon" -> {
-                            val neonPurple = Brush.linearGradient(listOf(Color(0xFFD0BCFF), Color(0xFF381E72)))
-                            val neonGreen = Brush.linearGradient(listOf(Color(0xFF7DFFB3), Color(0xFF0F766E)))
-                            val mainPurple = Color(0xFFD0BCFF)
-
-                            // Segmented micro robo vertebral columns
-                            val steps = 4
-                            for (i in 0..steps) {
-                                val t = i.toFloat() / steps
-                                val px = basePelvisX + (neckX - basePelvisX) * t
-                                val py = basePelvisY + (neckY - basePelvisY) * t
-                                drawCircle(
-                                    color = mainPurple.copy(alpha = 0.82f),
-                                    radius = (3.8f - t * 1.3f) * 1.5f * 1.dp.toPx(),
-                                    center = Offset(px, py)
-                                )
-                            }
-                            drawLine(Color(0xFFD0BCFF).copy(alpha = 0.45f), Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 2.8f * 1.dp.toPx())
-
-                            // Clavicle layout
-                            drawLine(Color(0xFFD0BCFF).copy(alpha = 0.65f), Offset(lShldX, lShldY), Offset(rShldX, rShldY), strokeWidth = 4.5f * 1.dp.toPx())
-                            drawLine(Color(0xFF49454F), Offset(lHipX, lHipY), Offset(rHipX, rHipY), strokeWidth = 3.5f * 1.dp.toPx())
-
-                            // Left Arm
-                            drawLine(neonPurple, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 3f * 1.dp.toPx())
-                            drawLine(neonPurple, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 2.3f * 1.dp.toPx())
-                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(lElbX, lElbY))
-                            drawCircle(Color(0xFFD0BCFF), 2.8f * 1.dp.toPx(), Offset(lHndX, lHndY))
-
-                            // Right Arm
-                            drawLine(neonPurple, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 3f * 1.dp.toPx())
-                            drawLine(neonPurple, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 2.3f * 1.dp.toPx())
-                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(rElbX, rElbY))
-                            drawCircle(Color(0xFFD0BCFF), 2.8f * 1.dp.toPx(), Offset(rHndX, rHndY))
-
-                            // Left Leg
-                            drawLine(neonGreen, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 3.8f * 1.dp.toPx())
-                            drawLine(neonGreen, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 3f * 1.dp.toPx())
-                            drawCircle(Color(0xFFD0BCFF), 3.8f * 1.dp.toPx(), Offset(lKneX, lKneY))
-                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(lFotX, lFotY))
-
-                            // Right Leg
-                            drawLine(neonGreen, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 3.8f * 1.dp.toPx())
-                            drawLine(neonGreen, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 3f * 1.dp.toPx())
-                            drawCircle(Color(0xFFD0BCFF), 3.8f * 1.dp.toPx(), Offset(rKneX, rKneY))
-                            drawCircle(Color(0xFF7DFFB3), 3.2f * 1.dp.toPx(), Offset(rFotX, rFotY))
-
-                            // Custom glowing visor head
-                            drawCircle(Color(0xFF1C1B1F), headRadius, Offset(headX, headY))
-                            drawCircle(Color(0xFFD0BCFF), headRadius, Offset(headX, headY), style = Stroke(width = 2f * 1.dp.toPx()))
-                            drawRoundRect(
-                                color = Color(0xFF7DFFB3),
-                                topLeft = Offset(headX - headRadius * 0.7f, headY - 2.8f * 1.dp.toPx()),
-                                size = androidx.compose.ui.geometry.Size(headRadius * 1.4f, 4.5f * 1.dp.toPx()),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.8f * 1.dp.toPx())
-                            )
-                        }
-
-                        "Athletic" -> {
-                            val activeOrange = Color(0xFFFF8F00)
-                            val coreGray = Color(0xFF49454F)
-                            val corePulseHeart = Color(0xFFFF5252)
-
-                            // Head details
-                            drawCircle(activeOrange, headRadius * 0.9f, Offset(headX, headY))
-                            drawCircle(Color.White, headRadius * 0.35f, Offset(headX + (chestLeanX * 0.1f), headY))
-
-                            // Active Heart sensor glow
-                            val scale = 1.0f + 0.12f * kotlin.math.sin(cyclePhase * 2f)
-                            drawCircle(
-                                color = corePulseHeart.copy(alpha = 0.22f),
-                                radius = 9f * 1.dp.toPx() * scale,
-                                center = Offset(neckX, neckY + 11.dp.toPx())
-                            )
-                            drawCircle(
-                                color = corePulseHeart,
-                                radius = 3.5f * 1.dp.toPx() * scale,
-                                center = Offset(neckX, neckY + 11.dp.toPx())
-                            )
-
-                            // Vertebral rod
-                            drawLine(coreGray, Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 6f * 1.dp.toPx())
-
-                            // Arms
-                            drawLine(activeOrange, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 3.8f * 1.dp.toPx())
-                            drawLine(activeOrange, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 2.8f * 1.dp.toPx())
-                            drawLine(activeOrange, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 3.8f * 1.dp.toPx())
-                            drawLine(activeOrange, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 2.8f * 1.dp.toPx())
-
-                            // Legs
-                            drawLine(coreGray, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 4.8f * 1.dp.toPx())
-                            drawLine(coreGray, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 3.8f * 1.dp.toPx())
-                            drawLine(coreGray, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 4.8f * 1.dp.toPx())
-                            drawLine(coreGray, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 3.8f * 1.dp.toPx())
-
-                            // Small Shoes at feet positions
-                            drawRect(
-                                color = activeOrange,
-                                topLeft = Offset(lFotX - 4.5f * 1.dp.toPx(), lFotY - 1f * 1.dp.toPx()),
-                                size = androidx.compose.ui.geometry.Size(9f * 1.dp.toPx(), 3.5f * 1.dp.toPx())
-                            )
-                            drawRect(
-                                color = activeOrange,
-                                topLeft = Offset(rFotX - 4.5f * 1.dp.toPx(), rFotY - 1f * 1.dp.toPx()),
-                                size = androidx.compose.ui.geometry.Size(9f * 1.dp.toPx(), 3.5f * 1.dp.toPx())
-                            )
-                        }
-
-                        else -> { // Minimalist Skeleton wireframe
-                            val lineOfMeshColor = Color(0xFFE6E1E5)
-
-                            drawLine(lineOfMeshColor, Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 1.29f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(rShldX, rShldY), strokeWidth = 1.25f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(rHipX, rHipY), strokeWidth = 1.25f * 1.dp.toPx())
-
-                            drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(lElbX, lElbY), strokeWidth = 1.1f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(lElbX, lElbY), Offset(lHndX, lHndY), strokeWidth = 0.95f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(rShldX, rShldY), Offset(rElbX, rElbY), strokeWidth = 1.1f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(rElbX, rElbY), Offset(rHndX, rHndY), strokeWidth = 0.95f * 1.dp.toPx())
-
-                            drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(lKneX, lKneY), strokeWidth = 1.1f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(lKneX, lKneY), Offset(lFotX, lFotY), strokeWidth = 0.95f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(rHipX, rHipY), Offset(rKneX, rKneY), strokeWidth = 1.1f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(rKneX, rKneY), Offset(rFotX, rFotY), strokeWidth = 0.95f * 1.dp.toPx())
-
-                            // Wireframe crosshead circle
-                            drawCircle(lineOfMeshColor, headRadius * 0.8f, Offset(headX, headY), style = Stroke(width = 0.95f * 1.dp.toPx()))
-                            drawLine(lineOfMeshColor, Offset(headX, headY - headRadius*0.8f), Offset(headX, headY + headRadius*0.8f), strokeWidth = 0.5f * 1.dp.toPx())
-                            drawLine(lineOfMeshColor, Offset(headX - headRadius*0.8f, headY), Offset(headX + headRadius*0.8f, headY), strokeWidth = 0.5f * 1.dp.toPx())
-                        }
-                    }
-                }
+                Text(
+                    text = "FORÇA G TOTAL",
+                    color = Color(0xFF938F99),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Text(
+                    text = "${"%.2f G".format(motionMagnitude / 9.81f)}",
+                    color = Color(0xFFD0BCFF),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
@@ -1073,13 +929,13 @@ fun OrientationVisualizer(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "SYSTEM STATUS: SECURE TELEMETRY FEEDS LINKED",
+                text = "CONEXÃO: SISTEMA DE TELEMETRIA ATIVO",
                 color = Color(0xFFCAC4D0),
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace
             )
             Text(
-                text = "DAMPED FILTER: ON",
+                text = "FILTRO SUAVE: ATIVADO",
                 color = Color(0xFF7DFFB3),
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
@@ -1110,7 +966,7 @@ fun SensorMetricVisualizer(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Real-time IMU Feeds",
+                        text = "Telemetria IMU em Tempo Real",
                         color = Color(0xFFE6E1E5),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
@@ -1121,12 +977,13 @@ fun SensorMetricVisualizer(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
-                            contentDescription = "Force simulated data",
+                            contentDescription = "Alternar Simulação",
                             tint = Color(0xFFD0BCFF)
                         )
                     }
                 }
 
+                // Default is HARDWARE SENSORS (Real data)
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
@@ -1139,7 +996,7 @@ fun SensorMetricVisualizer(
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = if (isSimulating) "SIMULATION ACTIVE" else "HARDWARE SENSORS",
+                        text = if (isSimulating) "SIMULAÇÃO ATIVA" else "SENSORES FÍSICOS (REAL)",
                         color = if (isSimulating) Color(0xFFFBBF24) else Color(0xFF7DFFB3),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
@@ -1147,7 +1004,7 @@ fun SensorMetricVisualizer(
                 }
             }
 
-            // Live 3D box model
+            // Live 3D skeleton model
             OrientationVisualizer(imuData = imuData)
 
             // Metrics Grid (Accelerometer & Gyroscope)
@@ -1158,8 +1015,8 @@ fun SensorMetricVisualizer(
                 // Accelerometer Column
                 SensorMetricBlock(
                     modifier = Modifier.weight(1f),
-                    title = "ACCELEROMETER",
-                    subtitle = "m/s² (with gravity)",
+                    title = "ACELERÔMETRO",
+                    subtitle = "m/s² (com gravidade)",
                     colorTheme = Color(0xFFD0BCFF),
                     valX = imuData.accelX,
                     valY = imuData.accelY,
@@ -1170,8 +1027,8 @@ fun SensorMetricVisualizer(
                 // Gyroscope Column
                 SensorMetricBlock(
                     modifier = Modifier.weight(1f),
-                    title = "GYROSCOPE",
-                    subtitle = "rad/s (angular velocity)",
+                    title = "GIROSCÓPIO",
+                    subtitle = "rad/s (vel. angular)",
                     colorTheme = Color(0xFFE8DEF8),
                     valX = imuData.gyroX,
                     valY = imuData.gyroY,
@@ -1282,7 +1139,7 @@ fun StreamConfigurationCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
-                text = "Remote Destination Settings",
+                text = "Configuração do Envio Remoto",
                 color = Color(0xFFE6E1E5),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
@@ -1295,7 +1152,7 @@ fun StreamConfigurationCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("target_url_input"),
-                label = { Text("Target POST Server URL") },
+                label = { Text("URL de Destino (POST)") },
                 placeholder = { Text("http://192.168.1.5:8000/api") },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -1316,72 +1173,18 @@ fun StreamConfigurationCard(
                 enabled = !isStreaming
             )
 
-            // Streaming Interval Slider / Picker
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "Post Frequency Interval", color = Color(0xFFCAC4D0), fontSize = 12.sp)
-                    Text(
-                        text = "${streamIntervalMs} ms (${"%.1f".format(1000f / streamIntervalMs)} Hz)",
-                        color = Color(0xFFD0BCFF),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Slider(
-                    value = streamIntervalMs.toFloat(),
-                    onValueChange = { onIntervalChange(it.toLong().coerceIn(100, 5000)) },
-                    valueRange = 100f..5000f,
-                    steps = 48,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFFD0BCFF),
-                        activeTrackColor = Color(0xFFD0BCFF),
-                        inactiveTrackColor = Color(0xFF49454F)
-                    ),
-                    enabled = !isStreaming
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Intervalo Fixo de Envio", color = Color(0xFFCAC4D0), fontSize = 12.sp)
+                Text(
+                    text = "${streamIntervalMs} ms (${"%.1f".format(1000f / streamIntervalMs)} Hz)",
+                    color = Color(0xFFD0BCFF),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
                 )
-            }
-
-            // Quick select interval row
-            if (!isStreaming) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val intervals = listOf(
-                        200L to "Fast",
-                        500L to "Medium",
-                        1000L to "Standard",
-                        3000L to "Eco"
-                    )
-                    intervals.forEach { (ms, name) ->
-                        val isSelected = streamIntervalMs == ms
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) Color(0xFFD0BCFF).copy(alpha = 0.15f) else Color(0xFF1C1B1F))
-                                .border(
-                                    width = 1.dp,
-                                    color = if (isSelected) Color(0xFFD0BCFF) else Color(0xFF49454F),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .clickable { onIntervalChange(ms) }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = name,
-                                color = if (isSelected) Color.White else Color(0xFFCAC4D0),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
             }
 
             // Client Statistics telemetry counters
@@ -1396,20 +1199,20 @@ fun StreamConfigurationCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(text = "STREAM COUNTERS", color = Color(0xFFCAC4D0), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                    Text(text = "CONTADORES DE TRANSMISSÃO", color = Color(0xFFCAC4D0), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     Row(
                         modifier = Modifier.padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "Success: $successCount",
+                            text = "Sucesso: $successCount",
                             color = Color(0xFF7DFFB3),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
-                            text = "Error: $errorCount",
+                            text = "Erro: $errorCount",
                             color = Color(0xFFB3261E),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
@@ -1425,7 +1228,7 @@ fun StreamConfigurationCard(
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Clear", color = Color(0xFFE6E1E5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Limpar", color = Color(0xFFE6E1E5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -1448,10 +1251,10 @@ fun StreamConfigurationCard(
                 ) {
                     Icon(
                         imageVector = if (isStreaming) Icons.Default.Close else Icons.Default.PlayArrow,
-                        contentDescription = if (isStreaming) "Stop Streaming" else "Start Streaming"
+                        contentDescription = if (isStreaming) "Parar Envio" else "Iniciar Envio"
                     )
                     Text(
-                        text = if (isStreaming) "STOP DATA STREAMING" else "START IMU STREAM (POST)",
+                        text = if (isStreaming) "PARAR TRANSMISSÃO DE DADOS" else "INICIAR ENVIO IMU (POST)",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
@@ -1482,13 +1285,13 @@ fun WebserverControlCard(
             ) {
                 Column {
                     Text(
-                        text = "Embedded Webserver Core",
+                        text = "Servidor Web Integrado",
                         color = Color(0xFFE6E1E5),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Host a JSON telemetry feed directly on your Local Area Network",
+                        text = "Disponibilize um fluxo de telemetria JSON local",
                         color = Color(0xFFCAC4D0),
                         fontSize = 11.sp
                     )
@@ -1501,7 +1304,7 @@ fun WebserverControlCard(
             if (isServerRunning) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "ACTIVE ACCESS ENDPOINTS (Tap to Copy):",
+                        text = "ENDPOINTS DE ACESSO ATIVOS (Toque para Copiar):",
                         color = Color(0xFFD0BCFF),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -1532,7 +1335,7 @@ fun WebserverControlCard(
                                 ) {
                                     Icon(Icons.Default.Share, contentDescription = "endpoint icon", tint = Color(0xFFD0BCFF), modifier = Modifier.size(14.dp))
                                     Text(
-                                        text = "GET API Route",
+                                        text = "Rota API GET",
                                         color = Color(0xFFCAC4D0),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
@@ -1545,7 +1348,7 @@ fun WebserverControlCard(
                                         .padding(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = "COPY",
+                                        text = "COPIAR",
                                         color = Color(0xFF1D192B),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
@@ -1566,7 +1369,7 @@ fun WebserverControlCard(
 
                             Row {
                                 Text(
-                                    text = "POST Raw Payload (to test received text display screen): ",
+                                    text = "POST JSON Bruto (para testar recebimento de texto externo): ",
                                     color = Color(0xFFCAC4D0),
                                     fontSize = 9.sp
                                 )
@@ -1596,18 +1399,18 @@ fun WebserverControlCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Warning,
-                            contentDescription = "Server offline",
+                            contentDescription = "Servidor offline",
                             tint = Color(0xFFCAC4D0),
                             modifier = Modifier.size(32.dp)
                         )
                         Text(
-                            text = "Embedded server is offline",
+                            text = "O servidor local está offline",
                             color = Color(0xFFE6E1E5),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Start the server to make the IMU JSON routes visible over Wi-Fi.",
+                            text = "Inicie o servidor para tornar as rotas JSON do IMU visíveis na mesma rede Wi-Fi.",
                             color = Color(0xFFCAC4D0),
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center
@@ -1635,10 +1438,10 @@ fun WebserverControlCard(
                 ) {
                     Icon(
                         imageVector = if (isServerRunning) Icons.Default.Close else Icons.Default.Refresh,
-                        contentDescription = "Toggle Webserver"
+                        contentDescription = "Alternar Servidor"
                     )
                     Text(
-                        text = if (isServerRunning) "STOP WEBSERVER" else "START WEBSERVER ENGINE (Port 8080)",
+                        text = if (isServerRunning) "DESATIVAR SERVIDOR" else "INICIAR SERVIDOR LOCAL (Porta 8080)",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
@@ -1758,7 +1561,7 @@ fun TerminalLogCard(
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "CONSOLE LOGS",
+                        text = "LOGS DO CONSOLE",
                         color = Color(0xFFE6E1E5),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
@@ -1778,7 +1581,7 @@ fun TerminalLogCard(
             ) {
                 if (logs.isEmpty()) {
                     Text(
-                        text = "Initializing terminal logs...\nWaiting for activity...",
+                        text = "Inicializando logs do terminal...\nAguardando atividade...",
                         color = Color(0xFFCAC4D0),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp

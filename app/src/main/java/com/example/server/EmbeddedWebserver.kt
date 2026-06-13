@@ -36,7 +36,7 @@ class EmbeddedWebserver(
 
     fun start(): String {
         if (_isServerRunning.value) {
-            return "Server is already running."
+            return "O servidor já está em execução."
         }
         return try {
             val addr = InetSocketAddress(port)
@@ -52,10 +52,10 @@ class EmbeddedWebserver(
                 start()
             }
             _isServerRunning.value = true
-            addLog("Webserver started successfully on port $port")
+            addLog("Servidor local iniciado com sucesso na porta $port")
             "Success"
         } catch (e: Exception) {
-            val errMsg = "Failed to start server: ${e.message}"
+            val errMsg = "Falha ao iniciar o servidor: ${e.message}"
             addLog(errMsg)
             errMsg
         }
@@ -66,9 +66,9 @@ class EmbeddedWebserver(
             server?.stop(0)
             server = null
             _isServerRunning.value = false
-            addLog("Webserver stopped.")
+            addLog("Servidor local parado.")
         } catch (e: Exception) {
-            addLog("Error stopping webserver: ${e.message}")
+            addLog("Erro ao parar o servidor: ${e.message}")
         }
     }
 
@@ -100,7 +100,7 @@ class EmbeddedWebserver(
                 }
             }
         } catch (e: Exception) {
-            addLog("Error reading IP address: ${e.message}")
+            addLog("Erro ao ler endereço IP: ${e.message}")
         }
         if (ips.isEmpty()) {
             ips.add("127.0.0.1")
@@ -112,7 +112,7 @@ class EmbeddedWebserver(
     inner class RootHandler : HttpHandler {
         override fun handle(exchange: HttpExchange) {
             val method = exchange.requestMethod
-            addLog("GET / from ${exchange.remoteAddress}")
+            addLog("GET / de ${exchange.remoteAddress}")
 
             val html = """
                 <!DOCTYPE html>
@@ -154,7 +154,7 @@ class EmbeddedWebserver(
     inner class SensorDataHandler : HttpHandler {
         override fun handle(exchange: HttpExchange) {
             val method = exchange.requestMethod
-            addLog("$method /sensor-data from ${exchange.remoteAddress}")
+            addLog("$method /sensor-data de ${exchange.remoteAddress}")
 
             val json = getSensorJson()
             _lastServedJson.value = json // Save raw JSON to flow
@@ -172,7 +172,7 @@ class EmbeddedWebserver(
     inner class PostDataHandler : HttpHandler {
         override fun handle(exchange: HttpExchange) {
             val method = exchange.requestMethod
-            addLog("$method /post-data from ${exchange.remoteAddress}")
+            addLog("$method /post-data de ${exchange.remoteAddress}")
 
             if (method.equals("OPTIONS", ignoreCase = true)) {
                 exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
@@ -189,7 +189,7 @@ class EmbeddedWebserver(
                     val received = reader.use { it.readText() }
                     
                     _lastReceivedJson.value = received
-                    addLog("Received active POST. Bytes: ${received.length}")
+                    addLog("POST ativo recebido. Bytes: ${received.length}")
 
                     val response = """{"status": "success", "received_bytes": ${received.length}}"""
                     val bytes = response.toByteArray(Charsets.UTF_8)
