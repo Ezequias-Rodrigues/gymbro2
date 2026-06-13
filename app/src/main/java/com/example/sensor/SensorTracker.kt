@@ -5,15 +5,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlin.math.sin
 
 data class ImuData(
     val timestamp: Long = System.currentTimeMillis(),
@@ -39,7 +33,7 @@ data class ImuData(
     "y": ${"%.4f".format(gyroY)},
     "z": ${"%.4f".format(gyroZ)}
   },
-  "sensor_source": "${if (isSimulated) "SIMULATED_SENSOR" else "PHYSICAL_SENSOR"}"
+  "sensor_source": "PHYSICAL_SENSOR"
 }"""
     }
 }
@@ -56,9 +50,6 @@ class SensorTracker(private val context: Context) : SensorEventListener {
     private val _isSimulating = MutableStateFlow(false)
     val isSimulating: StateFlow<Boolean> = _isSimulating.asStateFlow()
 
-    private var activeJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Default)
-
     // Current buffers
     private var curAccelX = 0f
     private var curAccelY = 0f
@@ -67,83 +58,25 @@ class SensorTracker(private val context: Context) : SensorEventListener {
     private var curGyroY = 0f
     private var curGyroZ = 0f
 
-    private var lastEventTime = 0L
-
     fun start() {
-        val hasAccel = accelerometer != null && sensorManager?.registerListener(
-            this,
-            accelerometer,
-            SensorManager.SENSOR_DELAY_UI
-        ) == true
-
-        val hasGyro = gyroscope != null && sensorManager?.registerListener(
-            this,
-            gyroscope,
-            SensorManager.SENSOR_DELAY_UI
-        ) == true
-
-        // If a physical sensor registration fails or has no sensors, we spin up simulated fallback.
-        if (!hasAccel || !hasGyro) {
-            startSimulation()
-        } else {
-            // Watchdog: If we don't get any events after 2 seconds, trigger simulation automatically
-            activeJob = scope.launch {
-                delay(2000)
-                if (lastEventTime == 0L) {
-                    startSimulation()
-                }
-            }
+        accelerometer?.let {
+            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+        gyroscope?.let {
+            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
     }
 
     fun stop() {
         sensorManager?.unregisterListener(this)
-        activeJob?.cancel()
-        _isSimulating.value = false
     }
 
     fun forceSimulation(enable: Boolean) {
-        stop()
-        if (enable) {
-            startSimulation()
-        } else {
-            start()
-        }
-    }
-
-    private fun startSimulation() {
-        activeJob?.cancel()
-        _isSimulating.value = true
-        activeJob = scope.launch {
-            var tick = 0f
-            while (true) {
-                tick += 0.15f
-                val accelX = sin(tick) * 2.5f
-                val accelY = sin(tick + 1.5f) * 1.8f
-                val accelZ = 9.8f + sin(tick + 3f) * 0.9f
-                val gyroX = sin(tick * 0.8f) * 0.5f
-                val gyroY = sin(tick * 1.2f + 0.5f) * 0.6f
-                val gyroZ = sin(tick * 0.5f + 1.2f) * 0.4f
-
-                _imuState.value = ImuData(
-                    timestamp = System.currentTimeMillis(),
-                    accelX = accelX,
-                    accelY = accelY,
-                    accelZ = accelZ,
-                    gyroX = gyroX,
-                    gyroY = gyroY,
-                    gyroZ = gyroZ,
-                    isSimulated = true
-                )
-                delay(120) // update similar to UI delay
-            }
-        }
+        // No-op - Simulations disabled per user request
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
-        lastEventTime = System.currentTimeMillis()
-        if (_isSimulating.value) return // Ignore physical sensor events if simulation is forced
 
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {

@@ -82,7 +82,6 @@ fun MainScreen(
     modifier: Modifier = Modifier
 ) {
     val imuState by viewModel.imuState.collectAsStateWithLifecycle()
-    val isSimulating by viewModel.isSimulating.collectAsStateWithLifecycle()
     
     val isServerRunning by viewModel.isServerRunning.collectAsStateWithLifecycle()
     val serverLogs by viewModel.serverLogs.collectAsStateWithLifecycle()
@@ -102,6 +101,9 @@ fun MainScreen(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val clipboardManager = LocalClipboardManager.current
+
+    var showStreamLogs by remember { mutableStateOf(false) }
+    var showServerLogsAndData by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -126,8 +128,7 @@ fun MainScreen(
         // --- HEADER SECTION ---
         HeaderComponent(
             isStreaming = isStreaming,
-            isServerRunning = isServerRunning,
-            isSimulating = isSimulating
+            isServerRunning = isServerRunning
         )
 
         // --- MODE TOGGLE (TAB SWITCHER) ---
@@ -150,9 +151,7 @@ fun MainScreen(
                     // TAB 1: SENSOR STREAM CONTROLS
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         SensorMetricVisualizer(
-                            imuData = imuState,
-                            isSimulating = isSimulating,
-                            onToggleSimulation = { viewModel.toggleSensorSimulation() }
+                            imuData = imuState
                         )
 
                         StreamConfigurationCard(
@@ -171,11 +170,43 @@ fun MainScreen(
                             onClearStats = { viewModel.clearClientStats() }
                         )
 
-                        TerminalLogCard(
-                            title = "Logs de Envio de Dados",
-                            logs = streamLogs,
-                            testTag = "stream_terminal"
-                        )
+                        // Collapsible Console Logs Box to keep UI strictly minimalist
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF2B2930))
+                                .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
+                                .clickable { showStreamLogs = !showStreamLogs }
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (showStreamLogs) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Expand",
+                                    tint = Color(0xFFD0BCFF)
+                                )
+                                Text(
+                                    text = if (showStreamLogs) "Ocultar Logs de Transmissão" else "Exibir Logs de Transmissão",
+                                    color = Color(0xFFE6E1E5),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            AnimatedVisibility(visible = showStreamLogs) {
+                                Column(modifier = Modifier.padding(top = 12.dp)) {
+                                    TerminalLogCard(
+                                        title = "Logs de Envio de Dados",
+                                        logs = streamLogs,
+                                        testTag = "stream_terminal"
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 1 -> {
@@ -196,31 +227,66 @@ fun MainScreen(
                             }
                         )
 
-                        // Displays JSON currently served (GET /sensor-data)
-                        DataViewCard(
-                            title = "Telemetria JSON Bruta (Fornecida)",
-                            jsonContent = if (lastServedJson.isEmpty()) imuState.toJsonString() else lastServedJson,
-                            badgeColor = Color(0xFFD0BCFF),
-                            badgeText = "GET /sensor-data",
-                            infoText = "Este é o estado atual que os clientes web locais recebem ao fazer a requisição.",
-                            testTag = "served_json_view"
-                        )
+                        // Collapsible Debug Data and Server Logs to save vertical layout space
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF2B2930))
+                                .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
+                                .clickable { showServerLogsAndData = !showServerLogsAndData }
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (showServerLogsAndData) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Expand",
+                                    tint = Color(0xFFD0BCFF)
+                                )
+                                Text(
+                                    text = if (showServerLogsAndData) "Ocultar Monitoração & Logs" else "Exibir Monitoração & Logs",
+                                    color = Color(0xFFE6E1E5),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            AnimatedVisibility(visible = showServerLogsAndData) {
+                                Column(
+                                    modifier = Modifier.padding(top = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    // Displays JSON currently served (GET /sensor-data)
+                                    DataViewCard(
+                                        title = "Telemetria JSON Bruta (Fornecida)",
+                                        jsonContent = if (lastServedJson.isEmpty()) imuState.toJsonString() else lastServedJson,
+                                        badgeColor = Color(0xFFD0BCFF),
+                                        badgeText = "GET /sensor-data",
+                                        infoText = "Este é o estado atual que os clientes web locais recebem ao fazer a requisição.",
+                                        testTag = "served_json_view"
+                                    )
 
-                        // Displays JSON received via POST to /post-data if applicable
-                        DataViewCard(
-                            title = "Telemetria JSON Bruta (Última Recebida)",
-                            jsonContent = if (lastReceivedJson.isEmpty()) """{"mensagem": "Nenhum POST externo recebido ainda.", "rota": "POST /post-data"}""" else lastReceivedJson,
-                            badgeColor = Color(0xFFB3261E),
-                            badgeText = "POST /post-data",
-                            infoText = "Aplicações externas podem fazer um HTTP POST com JSON bruto aqui para verificar a conectividade.",
-                            testTag = "received_json_view"
-                        )
+                                    // Displays JSON received via POST to /post-data if applicable
+                                    DataViewCard(
+                                        title = "Telemetria JSON Bruta (Última Recebida)",
+                                        jsonContent = if (lastReceivedJson.isEmpty()) """{"mensagem": "Nenhum POST externo recebido ainda.", "rota": "POST /post-data"}""" else lastReceivedJson,
+                                        badgeColor = Color(0xFFB3261E),
+                                        badgeText = "POST /post-data",
+                                        infoText = "Aplicações externas podem fazer um HTTP POST com JSON bruto aqui para verificar a conectividade.",
+                                        testTag = "received_json_view"
+                                    )
 
-                        TerminalLogCard(
-                            title = "Logs de Atividades do Servidor",
-                            logs = serverLogs,
-                            testTag = "server_terminal"
-                        )
+                                    TerminalLogCard(
+                                        title = "Logs de Atividades do Servidor",
+                                        logs = serverLogs,
+                                        testTag = "server_terminal"
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -240,8 +306,7 @@ fun MainScreen(
 @Composable
 fun HeaderComponent(
     isStreaming: Boolean,
-    isServerRunning: Boolean,
-    isSimulating: Boolean
+    isServerRunning: Boolean
 ) {
     Row(
         modifier = Modifier
@@ -947,9 +1012,7 @@ fun OrientationVisualizer(
 
 @Composable
 fun SensorMetricVisualizer(
-    imuData: ImuData,
-    isSimulating: Boolean,
-    onToggleSimulation: () -> Unit
+    imuData: ImuData
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -964,40 +1027,28 @@ fun SensorMetricVisualizer(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Telemetria IMU em Tempo Real",
-                        color = Color(0xFFE6E1E5),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(
-                        onClick = onToggleSimulation,
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Alternar Simulação",
-                            tint = Color(0xFFD0BCFF)
-                        )
-                    }
-                }
+                Text(
+                    text = "Telemetria IMU em Tempo Real",
+                    color = Color(0xFFE6E1E5),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
 
-                // Default is HARDWARE SENSORS (Real data)
+                // Clear hardware sensors indicator
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (isSimulating) Color(0xFFD97706).copy(alpha = 0.15f) else Color(0xFF7DFFB3).copy(alpha = 0.15f))
+                        .background(Color(0xFF7DFFB3).copy(alpha = 0.15f))
                         .border(
                             1.dp,
-                            if (isSimulating) Color(0xFFD97706) else Color(0xFF7DFFB3),
+                            Color(0xFF7DFFB3),
                             RoundedCornerShape(12.dp)
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = if (isSimulating) "SIMULAÇÃO ATIVA" else "SENSORES FÍSICOS (REAL)",
-                        color = if (isSimulating) Color(0xFFFBBF24) else Color(0xFF7DFFB3),
+                        text = "SENSORES FÍSICOS",
+                        color = Color(0xFF7DFFB3),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -1010,7 +1061,7 @@ fun SensorMetricVisualizer(
             // Metrics Grid (Accelerometer & Gyroscope)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Accelerometer Column
                 SensorMetricBlock(
@@ -1020,8 +1071,7 @@ fun SensorMetricVisualizer(
                     colorTheme = Color(0xFFD0BCFF),
                     valX = imuData.accelX,
                     valY = imuData.accelY,
-                    valZ = imuData.accelZ,
-                    maxExpected = 20f
+                    valZ = imuData.accelZ
                 )
 
                 // Gyroscope Column
@@ -1032,8 +1082,7 @@ fun SensorMetricVisualizer(
                     colorTheme = Color(0xFFE8DEF8),
                     valX = imuData.gyroX,
                     valY = imuData.gyroY,
-                    valZ = imuData.gyroZ,
-                    maxExpected = 5f
+                    valZ = imuData.gyroZ
                 )
             }
         }
@@ -1048,73 +1097,59 @@ fun SensorMetricBlock(
     colorTheme: Color,
     valX: Float,
     valY: Float,
-    valZ: Float,
-    maxExpected: Float
+    valZ: Float
 ) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF1C1B1F))
             .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Column {
-            Text(text = title, color = colorTheme, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(text = title, color = colorTheme, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
             Text(text = subtitle, color = Color(0xFFCAC4D0), fontSize = 9.sp)
         }
 
         HorizontalDivider(color = Color(0xFF49454F), thickness = 0.5.dp)
 
-        // Axis Channels X, Y, Z
-        ChannelComponent(axis = "X", value = valX, maxExpected = maxExpected, colorTheme = colorTheme)
-        ChannelComponent(axis = "Y", value = valY, maxExpected = maxExpected, colorTheme = colorTheme)
-        ChannelComponent(axis = "Z", value = valZ, maxExpected = maxExpected, colorTheme = colorTheme)
-    }
-}
-
-@Composable
-fun ChannelComponent(
-    axis: String,
-    value: Float,
-    maxExpected: Float,
-    colorTheme: Color
-) {
-    // Math logic to calculate bar progress symmetrically
-    val halfMax = maxExpected / 2f
-    val progress = ((value + halfMax) / maxExpected).coerceIn(0f, 1f)
-
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = axis,
-                color = Color(0xFFCAC4D0),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                text = "%.3f".format(value),
-                color = Color(0xFFE6E1E5),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace
-            )
+            val labelColor = Color(0xFF938F99)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Text(text = "X", color = labelColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "%.2f".format(valX),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Text(text = "Y", color = labelColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "%.2f".format(valY),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Text(text = "Z", color = labelColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "%.2f".format(valZ),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
-
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp)),
-            color = colorTheme,
-            trackColor = Color(0xFF2B2930)
-        )
     }
 }
 
