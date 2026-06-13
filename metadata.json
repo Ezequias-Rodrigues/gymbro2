@@ -1,0 +1,6 @@
+{
+  "name": "IMU Sensor Server",
+  "description": "An Android application that reads IMU sensors, streams data via POST, and hosts an embedded webserver serving and displaying raw JSON telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
