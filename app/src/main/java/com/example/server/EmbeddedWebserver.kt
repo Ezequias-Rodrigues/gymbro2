@@ -95,7 +95,7 @@ class EmbeddedWebserver(
                 while (addresses.hasMoreElements()) {
                     val addr = addresses.nextElement()
                     if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                        ips.add(addr.hostAddress)
+                        addr.hostAddress?.let { ips.add(it) }
                     }
                 }
             }
