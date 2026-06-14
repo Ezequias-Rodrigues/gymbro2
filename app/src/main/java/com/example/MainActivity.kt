@@ -6,16 +6,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -33,19 +30,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import com.example.sensor.ImuData
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,11 +52,7 @@ import com.example.camera.PoseOverlay
 import com.example.ml.DetectionMode
 import com.example.ml.JackResult
 import com.example.ml.PoseResult
-import com.example.model.Verdict
-import com.example.sensor.ImuData
 import com.example.ui.theme.MyApplicationTheme
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -73,10 +63,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyApplicationTheme(dynamicColor = false) {
                 Scaffold(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("main_scaffold"),
-                    containerColor = Color(0xFF1C1B1F) // Elegant Dark Surface Background
+                    modifier = Modifier.fillMaxSize(),
+                    containerColor = Color(0xFF0F172A) // Deep Slate Navy
                 ) { innerPadding ->
                     MainScreen(
                         viewModel = viewModel,
@@ -89,636 +77,38 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen(
-    viewModel: MainViewModel,
-    modifier: Modifier = Modifier
-) {
-    val imuState by viewModel.imuState.collectAsStateWithLifecycle()
-    
-    val isServerRunning by viewModel.isServerRunning.collectAsStateWithLifecycle()
-    val serverLogs by viewModel.serverLogs.collectAsStateWithLifecycle()
-    val lastServedJson by viewModel.lastServedJson.collectAsStateWithLifecycle()
-    val lastReceivedJson by viewModel.lastReceivedJson.collectAsStateWithLifecycle()
-    
-    val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
-    val successCount by viewModel.successCount.collectAsStateWithLifecycle()
-    val errorCount by viewModel.errorCount.collectAsStateWithLifecycle()
-    val streamLogs by viewModel.streamLogs.collectAsStateWithLifecycle()
-    val lastPostPayload by viewModel.lastPostPayload.collectAsStateWithLifecycle()
-    
-    val targetUrl by viewModel.targetUrl.collectAsStateWithLifecycle()
-    val streamIntervalMs by viewModel.streamIntervalMs.collectAsStateWithLifecycle()
-    val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
-
-    val verdict by viewModel.verdict.collectAsStateWithLifecycle()
-    val esp32Url by viewModel.esp32Url.collectAsStateWithLifecycle()
-    val isEsp32Polling by viewModel.isEsp32Polling.collectAsStateWithLifecycle()
-
-    val selectedMode by viewModel.selectedMode.collectAsStateWithLifecycle()
-    val jackResult by viewModel.jackResult.collectAsStateWithLifecycle()
-    val poseResult by viewModel.poseResult.collectAsStateWithLifecycle()
-    val isCameraActive by viewModel.isCameraActive.collectAsStateWithLifecycle()
-
-    val context = LocalContext.current
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val clipboardManager = LocalClipboardManager.current
-
-    var showStreamLogs by remember { mutableStateOf(false) }
-    var showServerLogsAndData by remember { mutableStateOf(false) }
-
-    val cameraPermission = android.Manifest.permission.CAMERA
-    val permissionState = remember { mutableStateOf(false) }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        permissionState.value = granted
-        if (granted) {
-            viewModel.startCamera()
-        }
-    }
-
-    val qrScan: () -> Unit = {
-        val scanner = GmsBarcodeScanning.getClient(context)
-        scanner.startScan()
-            .addOnSuccessListener { barcode ->
-                barcode?.rawValue?.let { url ->
-                    if (url.startsWith("http://") || url.startsWith("https://")) {
-                        viewModel.updateEsp32Url(url)
-                        Toast.makeText(context, "ESP32 URL: $url", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        Unit
-    }
-
-    LaunchedEffect(selectedMode) {
-        when (selectedMode) {
-            DetectionMode.IMU -> viewModel.stopCamera()
-            DetectionMode.CAMERA, DetectionMode.BOTH -> {
-                if (permissionState.value) {
-                    viewModel.startCamera()
-                } else {
-                    permissionLauncher.launch(cameraPermission)
-                }
-            }
-        }
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .drawBehind {
-                // Elegant violet-themed subtle glowing background gradients
-                drawCircle(
-                    color = Color(0xFFD0BCFF).copy(alpha = 0.08f),
-                    radius = size.width * 1.2f,
-                    center = Offset(size.width * 0.9f, size.height * 0.1f)
-                )
-                drawCircle(
-                    color = Color(0xFF381E72).copy(alpha = 0.12f),
-                    radius = size.width * 1.0f,
-                    center = Offset(size.width * 0.1f, size.height * 0.8f)
-                )
-            }
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // --- HEADER SECTION ---
-        HeaderComponent(
-            isStreaming = isStreaming,
-            isServerRunning = isServerRunning
-        )
-
-        // --- DETECTION MODE SELECTOR ---
-        ModeSelectorComponent(
-            selectedMode = selectedMode,
-            onModeSelected = { viewModel.setDetectionMode(it) },
-            isCameraActive = isCameraActive
-        )
-
-        // --- JACK RESULT FEEDBACK ---
-        if (jackResult != null) {
-            JackResultFeedbackCard(result = jackResult!!)
-        } else if (verdict != null) {
-            VerdictFeedbackCard(verdict = verdict!!)
-        }
-
-        // --- MODE TOGGLE (TAB SWITCHER) ---
-        TabSwitcherComponent(
-            selectedTab = selectedTab,
-            onTabSelected = { viewModel.setSelectedTab(it) }
-        )
-
-        // --- DYNAMIC CONTENT BASED ON SELECTED TAB ---
-        AnimatedContent(
-            targetState = selectedTab,
-            transitionSpec = {
-                slideInHorizontally { width -> if (targetState > initialState) width else -width } + fadeIn() togetherWith
-                slideOutHorizontally { width -> if (targetState > initialState) -width else width } + fadeOut()
-            },
-            label = "tab_content_transition"
-        ) { tabIndex ->
-            when (tabIndex) {
-                0 -> {
-                    // TAB 1: SENSOR STREAM CONTROLS
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        when (selectedMode) {
-                            DetectionMode.CAMERA -> {
-                                CameraViewport(
-                                    poseResult = poseResult,
-                                    isCameraActive = isCameraActive
-                                )
-                            }
-                            DetectionMode.BOTH -> {
-                                CameraViewport(
-                                    poseResult = poseResult,
-                                    isCameraActive = isCameraActive,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                OrientationVisualizer(
-                                    imuData = imuState,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                            DetectionMode.IMU -> {
-                                SensorMetricVisualizer(
-                                    imuData = imuState
-                                )
-                            }
-                        }
-
-                        StreamConfigurationCard(
-                            targetUrl = targetUrl,
-                            streamIntervalMs = streamIntervalMs,
-                            isStreaming = isStreaming,
-                            successCount = successCount,
-                            errorCount = errorCount,
-                            lastPayload = lastPostPayload,
-                            onUrlChange = { viewModel.updateTargetUrl(it) },
-                            onIntervalChange = { viewModel.updateStreamInterval(it) },
-                            onToggleStream = {
-                                keyboardController?.hide()
-                                viewModel.toggleStreaming()
-                            },
-                            onClearStats = { viewModel.clearClientStats() }
-                        )
-
-                        Esp32ConfigCard(
-                            esp32Url = esp32Url,
-                            isEsp32Polling = isEsp32Polling,
-                            onUrlChange = { viewModel.updateEsp32Url(it) },
-                            onTogglePolling = {
-                                keyboardController?.hide()
-                                viewModel.toggleEsp32Polling()
-                            },
-                            onScanQr = qrScan
-                        )
-
-                        // Collapsible Console Logs Box to keep UI strictly minimalist
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF2B2930))
-                                .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-                                .clickable { showStreamLogs = !showStreamLogs }
-                                .padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (showStreamLogs) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Expand",
-                                    tint = Color(0xFFD0BCFF)
-                                )
-                                Text(
-                                    text = if (showStreamLogs) "Ocultar Logs de Transmissão" else "Exibir Logs de Transmissão",
-                                    color = Color(0xFFE6E1E5),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            AnimatedVisibility(visible = showStreamLogs) {
-                                Column(modifier = Modifier.padding(top = 12.dp)) {
-                                    TerminalLogCard(
-                                        title = "Logs de Envio de Dados",
-                                        logs = streamLogs,
-                                        testTag = "stream_terminal"
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                1 -> {
-                    // TAB 2: EMBEDDED SERVER & DATA VIEW
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        WebserverControlCard(
-                            isServerRunning = isServerRunning,
-                            getIps = { viewModel.getLocalIpAddresses() },
-                            onToggleServer = {
-                                val result = viewModel.toggleWebserver()
-                                if (result != "Success" && result != "Server stopped") {
-                                    Toast.makeText(context, result, Toast.LENGTH_LONG).show()
-                                }
-                            },
-                            onCopyUrl = { url ->
-                                clipboardManager.setText(AnnotatedString(url))
-                                Toast.makeText(context, "URL Copiada: $url", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-
-                        // Collapsible Debug Data and Server Logs to save vertical layout space
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF2B2930))
-                                .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-                                .clickable { showServerLogsAndData = !showServerLogsAndData }
-                                .padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (showServerLogsAndData) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Expand",
-                                    tint = Color(0xFFD0BCFF)
-                                )
-                                Text(
-                                    text = if (showServerLogsAndData) "Ocultar Monitoração & Logs" else "Exibir Monitoração & Logs",
-                                    color = Color(0xFFE6E1E5),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            AnimatedVisibility(visible = showServerLogsAndData) {
-                                Column(
-                                    modifier = Modifier.padding(top = 12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    // Displays JSON currently served (GET /sensor-data)
-                                    DataViewCard(
-                                        title = "Telemetria JSON Bruta (Fornecida)",
-                                        jsonContent = if (lastServedJson.isEmpty()) imuState.toJsonString() else lastServedJson,
-                                        badgeColor = Color(0xFFD0BCFF),
-                                        badgeText = "GET /sensor-data",
-                                        infoText = "Este é o estado atual que os clientes web locais recebem ao fazer a requisição.",
-                                        testTag = "served_json_view"
-                                    )
-
-                                    // Displays JSON received via POST to /post-data if applicable
-                                    DataViewCard(
-                                        title = "Telemetria JSON Bruta (Última Recebida)",
-                                        jsonContent = if (lastReceivedJson.isEmpty()) """{"mensagem": "Nenhum POST externo recebido ainda.", "rota": "POST /post-data"}""" else lastReceivedJson,
-                                        badgeColor = Color(0xFFB3261E),
-                                        badgeText = "POST /post-data",
-                                        infoText = "Aplicações externas podem fazer um HTTP POST com JSON bruto aqui para verificar a conectividade.",
-                                        testTag = "received_json_view"
-                                    )
-
-                                    TerminalLogCard(
-                                        title = "Logs de Atividades do Servidor",
-                                        logs = serverLogs,
-                                        testTag = "server_terminal"
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- BOTTOM STATUS BAR (FOOTER) ---
-        FooterStatusBar(
-            targetUrl = targetUrl,
-            streamIntervalMs = streamIntervalMs,
-            isStreaming = isStreaming
-        )
-    }
-}
-
-// --- SUB-COMPONENTS ---
-
-@Composable
-fun HeaderComponent(
-    isStreaming: Boolean,
-    isServerRunning: Boolean
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFD0BCFF)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Nó de Sensores",
-                    tint = Color(0xFF381E72),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-            Column {
-                Text(
-                    text = "Nó de Sensores (IMU)",
-                    color = Color(0xFFE6E1E5),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = if (isStreaming) "TRANSMISSÃO ATIVA" else if (isServerRunning) "SERVIDOR ATIVO" else "SISTEMA INATIVO",
-                    color = if (isStreaming || isServerRunning) Color(0xFF7DFFB3) else Color(0xFFCAC4D0),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-            }
-        }
-
-        // Live connection pill indicators with Elegant Dark styling
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusPill(
-                label = "ENVIO",
-                isActive = isStreaming,
-                activeColor = Color(0xFFD0BCFF)
-            )
-            StatusPill(
-                label = "HOST",
-                isActive = isServerRunning,
-                activeColor = Color(0xFFE8DEF8)
-            )
-        }
-    }
-}
-
-@Composable
-fun StatusPill(label: String, isActive: Boolean, activeColor: Color) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulsing")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pill_alpha"
-    )
-
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isActive) activeColor.copy(alpha = 0.15f) else Color(0xFF2B2930))
-            .border(
-                width = 1.dp,
-                color = if (isActive) activeColor else Color(0xFF49454F),
-                shape = RoundedCornerShape(12.dp)
-            )
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(
-                        color = if (isActive) activeColor.copy(alpha = alpha) else Color(0xFF938F99)
-                    )
-            )
-            Text(
-                text = label,
-                color = if (isActive) Color.White else Color(0xFFCAC4D0),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-    }
-}
-
-@Composable
-fun TabSwitcherComponent(
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp)) // Fully rounded capsule
-            .background(Color.Transparent)
-            .border(
-                width = 1.dp,
-                color = Color(0xFF938F99),
-                shape = RoundedCornerShape(24.dp)
-            )
-            .padding(1.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val tabs = listOf("Leitura dos Sensores", "Acesso Servidor Local")
-        tabs.forEachIndexed { index, title ->
-            val isSelected = selectedTab == index
-            val bgColor by animateColorAsState(
-                targetValue = if (isSelected) Color(0xFFE8DEF8) else Color.Transparent,
-                animationSpec = tween(150),
-                label = "tab_bg"
-            )
-            val textColor by animateColorAsState(
-                targetValue = if (isSelected) Color(0xFF1D192B) else Color(0xFFCAC4D0),
-                animationSpec = tween(150),
-                label = "tab_text"
-            )
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(bgColor)
-                    .clickable { onTabSelected(index) }
-                    .padding(vertical = 10.dp)
-                    .testTag("tab_$index"),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = title,
-                    color = textColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun FooterStatusBar(
-    targetUrl: String,
-    streamIntervalMs: Long,
-    isStreaming: Boolean
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val glowScale by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = EaseInOutSine),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow"
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xFF2B2930))
-            .border(1.dp, Color(0xFF49454F), RoundedCornerShape(24.dp))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .drawBehind {
-                        drawCircle(
-                            color = if (isStreaming) Color(0xFF7DFFB3).copy(alpha = 0.4f * glowScale) else Color(0xFF938F99).copy(alpha = 0.3f),
-                            radius = size.width * (1.2f + 1.2f * glowScale)
-                        )
-                    }
-                    .clip(CircleShape)
-                    .background(if (isStreaming) Color(0xFF7DFFB3) else Color(0xFF938F99))
-            )
-            
-            Text(
-                text = if (isStreaming) "TX: ${targetUrl.take(28)}${if (targetUrl.length > 28) "..." else ""}" else "TX DESCONECTADO",
-                color = Color(0xFFCAC4D0),
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1
-            )
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = "Sincronizando",
-                tint = Color(0xFFD0BCFF),
-                modifier = Modifier.size(14.dp)
-            )
-            Text(
-                text = "${"%.1f".format(1000f / streamIntervalMs.toFloat())}Hz",
-                color = Color(0xFFD0BCFF),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
-}
-
-
-@Composable
 fun OrientationVisualizer(
     imuData: ImuData,
     modifier: Modifier = Modifier
 ) {
-    // Local calibration states to permit manual centering based on user phone posture
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
-    var offsetZ by remember { mutableStateOf(0f) } // normalized linear offset
+    var offsetZ by remember { mutableStateOf(0f) }
 
-    // Calibrated physical readings
     val calValueX = imuData.accelX - offsetX
     val calValueY = imuData.accelY - offsetY
-    val calValueZ = imuData.accelZ - offsetZ // centered around zero linear accel
+    val calValueZ = imuData.accelZ - offsetZ
 
-    // Smooth physics animated states using damping springs to prevent jitter
-    val smoothAccelX by animateFloatAsState(
-        targetValue = calValueX,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
-        label = "smooth_acc_x"
-    )
-    val smoothAccelY by animateFloatAsState(
-        targetValue = calValueY,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
-        label = "smooth_acc_y"
-    )
-    val smoothAccelZ by animateFloatAsState(
-        targetValue = calValueZ,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
-        label = "smooth_acc_z"
-    )
+    val smoothAccelX by animateFloatAsState(targetValue = calValueX, label = "smooth_acc_x")
+    val smoothAccelY by animateFloatAsState(targetValue = calValueY, label = "smooth_acc_y")
+    val smoothAccelZ by animateFloatAsState(targetValue = calValueZ, label = "smooth_acc_z")
+    val smoothGyroZ by animateFloatAsState(targetValue = imuData.gyroZ, label = "smooth_gyro_z")
 
-    val smoothGyroX by animateFloatAsState(
-        targetValue = imuData.gyroX,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "smooth_gyro_x"
-    )
-    val smoothGyroY by animateFloatAsState(
-        targetValue = imuData.gyroY,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "smooth_gyro_y"
-    )
-    val smoothGyroZ by animateFloatAsState(
-        targetValue = imuData.gyroZ,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "smooth_gyro_z"
-    )
-
-    // Compute variance from static linear acceleration (magnitude deviation)
     val motionMagnitude = kotlin.math.sqrt(calValueX * calValueX + calValueY * calValueY + calValueZ * calValueZ)
     val angularSpeed = kotlin.math.abs(imuData.gyroX) + kotlin.math.abs(imuData.gyroY) + kotlin.math.abs(imuData.gyroZ)
 
-    // Check for jump gesture trigger and initiate jumping jacks
     var jumpDetectedTime by remember { mutableStateOf(0L) }
     val curTime = System.currentTimeMillis()
-    
-    // Jump trigger: dynamic linear acceleration magnitude > 3.8 m/s²
     if (motionMagnitude > 3.8f && curTime - jumpDetectedTime > 1500) {
         jumpDetectedTime = curTime
     }
-    
-    val timeSinceJump = curTime - jumpDetectedTime
-    val isJacking = timeSinceJump < 1200 // Complete jumping jack takes 1200ms
-    val jackFactor = if (isJacking) {
-        kotlin.math.sin((timeSinceJump.toFloat() / 1200f) * Math.PI.toFloat())
-    } else {
-        0f
-    }
 
-    // Dynamic user motion states logic
+    val timeSinceJump = curTime - jumpDetectedTime
+    val isJacking = timeSinceJump < 1200
+    val jackFactor = if (isJacking) kotlin.math.sin((timeSinceJump.toFloat() / 1200f) * Math.PI.toFloat()) else 0f
+
     val statusText = when {
-        isJacking -> "SAUTANDO: POLICHINELO 🤸"
+        isJacking -> "SALTANDO: POLICHINELO 🤸"
         motionMagnitude > 4.5f || angularSpeed > 2.2f -> "CORRENDO / ACELERADO ⚡"
         motionMagnitude > 1.2f || angularSpeed > 1.0f -> "ANDANDO / MOVIMENTO 🚶"
         motionMagnitude > 0.3f || angularSpeed > 0.3f -> "INCLINANDO / SUAVE 🍃"
@@ -726,1537 +116,277 @@ fun OrientationVisualizer(
     }
 
     val statusBadgeColor = when {
-        statusText.contains("🤸") -> Color(0xFFFBBF24) // Golden Amber for jumping jacks
-        statusText.contains("⚡") -> Color(0xFF7DFFB3) // Glowing light emerald
-        statusText.contains("🚶") -> Color(0xFFD0BCFF) // Accent violet
-        statusText.contains("🍃") -> Color(0xFFE8DEF8) // Soft lavender
-        else -> Color(0xFF938F99) // Gray status
+        statusText.contains("🤸") -> Color(0xFFFBBF24)
+        statusText.contains("⚡") -> Color(0xFF34D399)
+        statusText.contains("🚶") -> Color(0xFF3B82F6)
+        else -> Color(0xFF475569)
     }
 
-    // Walking/Running motion phase cycle animation
     val infiniteTransition = rememberInfiniteTransition(label = "runner_cycle_engine")
     val cyclePhase by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2f * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = if (statusText.contains("⚡")) 420 else 840,
-                easing = LinearEasing
-            ),
-            repeatMode = RepeatMode.Restart
-        ),
+        animationSpec = infiniteRepeatable(animation = tween(800), repeatMode = RepeatMode.Restart),
         label = "cycle_phase"
-    )
-
-    // Smooth movement influence scorer
-    val movementScore = if (statusText.contains("⚡") || statusText.contains("🚶")) 1f else 0f
-    val smoothMovementFactor by animateFloatAsState(
-        targetValue = movementScore,
-        animationSpec = tween(350),
-        label = "movement_factor"
     )
 
     Column(
         modifier = modifier
-            .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xFF2B2930))
-            .border(1.dp, Color(0xFF49454F), RoundedCornerShape(24.dp))
+            .background(Color(0xFF1E293B))
+            .border(1.dp, Color(0xFF334155), RoundedCornerShape(24.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // --- HUD HEADER: Status Indicators and Calibrate Action Button ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
-                    text = "VISUALIZAÇÃO DE ESQUELETO (IMU)",
-                    color = Color(0xFFD0BCFF),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(3.dp))
+                Text("VISUALIZAÇÃO IMU", color = Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(statusBadgeColor)
-                    )
-                    Text(
-                        text = statusText,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(statusBadgeColor))
+                    Text(statusText, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
-
-            // High-Utility Centering calibration button
-            Button(
-                onClick = {
-                    offsetX = imuData.accelX
-                    offsetY = imuData.accelY
-                    offsetZ = imuData.accelZ
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1C1B1F),
-                    contentColor = Color(0xFFD0BCFF)
-                ),
-                border = BorderStroke(1.dp, Color(0xFF49454F)),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Calibrar",
-                    tint = Color(0xFFD0BCFF),
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("CALIBRAR", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            IconButton(onClick = { offsetX = imuData.accelX; offsetY = imuData.accelY; offsetZ = imuData.accelZ }) {
+                Icon(Icons.Default.Refresh, "Calibrar", tint = Color(0xFF3B82F6))
             }
         }
 
-        HorizontalDivider(color = Color(0xFF49454F), thickness = 0.5.dp)
-
-        // --- VISUALIZATION BOX WORKSPACE (Now spans FULL width smoothly) ---
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(260.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF1C1B1F))
-                .border(1.dp, Color(0xFF49454F), RoundedCornerShape(20.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            // Circular target radar background guides
-            Canvas(
-                modifier = Modifier.fillMaxSize()
-            ) {
+        Box(modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(20.dp)).background(Color(0xFF0F172A)), contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
-                
-                val radX = w / 2f
-                val radY = h * 0.45f
+                val midX = w / 2f
+                val midY = h * 0.44f
 
-                // Draw static radial guidelines
-                drawCircle(
-                    color = Color(0xFFD0BCFF).copy(alpha = 0.04f),
-                    radius = 75.dp.toPx(),
-                    center = Offset(radX, radY),
-                    style = Stroke(width = 1.dp.toPx())
-                )
-                drawCircle(
-                    color = Color(0xFFD0BCFF).copy(alpha = 0.07f),
-                    radius = 45.dp.toPx(),
-                    center = Offset(radX, radY),
-                    style = Stroke(
-                        width = 0.5f * 1.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                    )
-                )
-                
-                drawLine(
-                    color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
-                    start = Offset(radX, 10.dp.toPx()),
-                    end = Offset(radX, h - 10.dp.toPx()),
-                    strokeWidth = 1.dp.toPx()
-                )
-                drawLine(
-                    color = Color(0xFFD0BCFF).copy(alpha = 0.025f),
-                    start = Offset(10.dp.toPx(), radY),
-                    end = Offset(w - 10.dp.toPx(), radY),
-                    strokeWidth = 1.dp.toPx()
-                )
-
-                // Draw a micro Bubble Level at the bottom to represent lateral physical leans
-                val levelCenterY = h - 22.dp.toPx()
-                val levelCenterX = w / 2f
-                drawCircle(
-                    color = Color(0xFFCAC4D0).copy(alpha = 0.15f),
-                    radius = 11.dp.toPx(),
-                    center = Offset(levelCenterX, levelCenterY),
-                    style = Stroke(width = 1.dp.toPx())
-                )
-                
-                val bubbleLimit = 9.dp.toPx()
-                val bOfsX = (-smoothAccelX * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
-                val bOfsY = (smoothAccelY * 1.1f).coerceIn(-bubbleLimit, bubbleLimit)
-                drawCircle(
-                    color = Color(0xFF7DFFB3),
-                    radius = 3.dp.toPx(),
-                    center = Offset(levelCenterX + bOfsX, levelCenterY + bOfsY)
-                )
-            }
-
-            // Custom Mannequin Draw Frame
-            Canvas(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                val w = size.width
-                val h = size.height
-
-                // Dimensions definitions
-                val midY = h * 0.44f // Waist position
-                val spineHeight = 35.dp.toPx()
-                val headRadius = 10.dp.toPx()
-                val shoulderWidth = 18.dp.toPx()
-                val armSegLength = 20.dp.toPx()
-                val legSegLength = 26.dp.toPx()
-                val hipWidth = 11.dp.toPx()
-
-                // Horizontal tilts maps from X axis gravity vector acceleration
-                val chestLeanX = (-smoothAccelX * 3.2f).coerceIn(-40f, 40f) // offset scale
-                // Pitch maps from Y axis gravity vector
+                val chestLeanX = (-smoothAccelX * 3.2f).coerceIn(-40f, 40f)
                 val chestLeanY = (smoothAccelY * -2.2f).coerceIn(-22f, 22f)
-
-                // Twisting vector maps from Gyro Z
                 val twistAngle = (smoothGyroZ * 14f).coerceIn(-28f, 28f)
 
-                // Inertia pushes the trunk / pelvis center opposite to physical acceleration
-                val inertiaShiftX = (-smoothAccelX * 12f).coerceIn(-50f, 50f)
-                val inertiaShiftY = (smoothAccelY * 12f).coerceIn(-40f, 40f)
+                val pelvisX = midX - (smoothAccelX * 12f).coerceIn(-50f, 50f)
+                val pelvisY = midY + 12.dp.toPx() + (smoothAccelY * 12f).coerceIn(-40f, 40f)
+                val neckX = midX + chestLeanX - (smoothAccelX * 12f).coerceIn(-50f, 50f)
+                val neckY = pelvisY - 35.dp.toPx() + chestLeanY
 
-                // Joints Calculation coordinates
-                val basePelvisX = (w / 2f) + inertiaShiftX
-                val basePelvisY = midY + 12.dp.toPx() + inertiaShiftY
-
-                val neckX = (w / 2f) + chestLeanX + inertiaShiftX
-                val neckY = basePelvisY - spineHeight + chestLeanY
-
-                // Shoulder joint limits
+                val shoulderWidth = 18.dp.toPx()
                 val lShldX = neckX - shoulderWidth + twistAngle * 0.2f
                 val lShldY = neckY + twistAngle * 0.1f
                 val rShldX = neckX + shoulderWidth - twistAngle * 0.2f
                 val rShldY = neckY - twistAngle * 0.1f
 
-                // Floating Human Head
-                val headX = neckX + (chestLeanX * 0.22f)
-                val headY = neckY - headRadius - 5.dp.toPx()
+                val boneColor = Color(0xFF3B82F6)
+                val jointColor = Color(0xFF34D399)
+                val limbColor = Color(0xFF64748B)
 
-                // Hip joints
-                val lHipX = basePelvisX - hipWidth
-                val lHipY = basePelvisY
-                val rHipX = basePelvisX + hipWidth
-                val rHipY = basePelvisY
-
-                // Motion Factor interpolation LERP
-                val mF = smoothMovementFactor
-
-                // --- LEFT ARM MOVEMENT GENERATOR ---
-                // Idle sway coordinates
-                val lIdleElboX = lShldX - 4.dp.toPx() + (smoothGyroY * 4f)
-                val lIdleElboY = lShldY + armSegLength
-                val lIdleHandX = lIdleElboX - 2.dp.toPx() + (smoothGyroZ * 7f)
-                val lIdleHandY = lIdleElboY + armSegLength + (smoothGyroX * 3f)
-
-                // Sprinting oscillation coordinates
-                val lSprintElboX = lShldX - 7.dp.toPx() + (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
-                val lSprintElboY = lShldY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
-                val lSprintHandX = lShldX - 14.dp.toPx() + (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
-                val lSprintHandY = lSprintElboY + armSegLength * 0.7f + (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
-
-                // Final LERPed joints
-                val lElbX = lIdleElboX * (1f - mF) + lSprintElboX * mF
-                val lElbY = lIdleElboY * (1f - mF) + lSprintElboY * mF
-                val lHndX = lIdleHandX * (1f - mF) + lSprintHandX * mF
-                val lHndY = lIdleHandY * (1f - mF) + lSprintHandY * mF
-
-                // --- RIGHT ARM MOVEMENT GENERATOR ---
-                val rIdleElboX = rShldX + 4.dp.toPx() - (smoothGyroY * 4f)
-                val rIdleElboY = rShldY + armSegLength
-                val rIdleHandX = rIdleElboX + 2.dp.toPx() - (smoothGyroZ * 7f)
-                val rIdleHandY = rIdleElboY + armSegLength - (smoothGyroX * 3f)
-
-                val rSprintElboX = rShldX + 7.dp.toPx() - (kotlin.math.sin(cyclePhase) * 11.dp.toPx())
-                val rSprintElboY = rShldY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase) * 5.dp.toPx())
-                val rSprintHandX = rShldX + 14.dp.toPx() - (kotlin.math.sin(cyclePhase + 0.3f) * 14.dp.toPx())
-                val rSprintHandY = rSprintElboY + armSegLength * 0.7f - (kotlin.math.cos(cyclePhase + 0.3f) * 11.dp.toPx())
-
-                val rElbX = rIdleElboX * (1f - mF) + rSprintElboX * mF
-                val rElbY = rIdleElboY * (1f - mF) + rSprintElboY * mF
-                val rHndX = rIdleHandX * (1f - mF) + rSprintHandX * mF
-                val rHndY = rIdleHandY * (1f - mF) + rSprintHandY * mF
-
-                // --- LEFT LEG MOVEMENT GENERATOR ---
-                val lIdleKneeX = lHipX - 1.dp.toPx() - (smoothAccelX * 0.7f)
-                val lIdleKneeY = lHipY + legSegLength
-                val lIdleFootX = lIdleKneeX - 1.dp.toPx() - (smoothAccelX * 1.3f)
-                val lIdleFootY = lIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
-
-                val lSprintKneeX = lHipX + (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
-                val lSprintKneeY = lHipY + legSegLength * 0.78f + (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
-                val lSprintFootX = lHipX + (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
-                val lSprintFootY = lHipY + legSegLength * 1.55f + (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
-
-                val lKneX = lIdleKneeX * (1f - mF) + lSprintKneeX * mF
-                val lKneY = lIdleKneeY * (1f - mF) + lSprintKneeY * mF
-                val lFotX = lIdleFootX * (1f - mF) + lSprintFootX * mF
-                val lFotY = lIdleFootY * (1f - mF) + lSprintFootY * mF
-
-                // --- RIGHT LEG MOVEMENT GENERATOR ---
-                val rIdleKneeX = rHipX + 1.dp.toPx() - (smoothAccelX * 0.7f)
-                val rIdleKneeY = rHipY + legSegLength
-                val rIdleFootX = rIdleKneeX + 1.dp.toPx() - (smoothAccelX * 1.3f)
-                val rIdleFootY = rIdleKneeY + legSegLength + if (smoothAccelY > 0) smoothAccelY * 1.8f else 0f
-
-                val rSprintKneeX = rHipX - (kotlin.math.cos(cyclePhase) * 9.dp.toPx())
-                val rSprintKneeY = rHipY + legSegLength * 0.78f - (kotlin.math.sin(cyclePhase) * 5.dp.toPx())
-                val rSprintFootX = rHipX - (kotlin.math.cos(cyclePhase + 0.4f) * 13.dp.toPx())
-                val rSprintFootY = rHipY + legSegLength * 1.55f - (kotlin.math.sin(cyclePhase + 0.4f) * 7.dp.toPx())
-
-                val rKneX = rIdleKneeX * (1f - mF) + rSprintKneeX * mF
-                val rKneY = rIdleKneeY * (1f - mF) + rSprintKneeY * mF
-                val rFotX = rIdleFootX * (1f - mF) + rSprintFootX * mF
-                val rFotY = rIdleFootY * (1f - mF) + rSprintFootY * mF
-
-                // --- JUMPING JACKS TARGETS OVERLAY ---
-                val jackLHandX = basePelvisX - 32.dp.toPx()
-                val jackLHandY = neckY - 24.dp.toPx()
-                val jackLElboX = basePelvisX - 24.dp.toPx()
-                val jackLElboY = neckY - 8.dp.toPx()
-
-                val jackRHandX = basePelvisX + 32.dp.toPx()
-                val jackRHandY = neckY - 24.dp.toPx()
-                val jackRElboX = basePelvisX + 24.dp.toPx()
-                val jackRElboY = neckY - 8.dp.toPx()
-
-                val jackLFootX = lHipX - 18.dp.toPx()
-                val jackLFootY = basePelvisY + legSegLength * 1.8f
-                val jackLKneeX = lHipX - 9.dp.toPx()
-                val jackLKneeY = basePelvisY + legSegLength * 0.9f
-
-                val jackRFootX = rHipX + 18.dp.toPx()
-                val jackRFootY = basePelvisY + legSegLength * 1.8f
-                val jackRKneeX = rHipX + 9.dp.toPx()
-                val jackRKneeY = basePelvisY + legSegLength * 0.9f
-
-                // Blend joints with jumping jacks based on jackFactor
-                val fLElbX = lElbX * (1f - jackFactor) + jackLElboX * jackFactor
-                val fLElbY = lElbY * (1f - jackFactor) + jackLElboY * jackFactor
-                val fLHndX = lHndX * (1f - jackFactor) + jackLHandX * jackFactor
-                val fLHndY = lHndY * (1f - jackFactor) + jackLHandY * jackFactor
-
-                val fRElbX = rElbX * (1f - jackFactor) + jackRElboX * jackFactor
-                val fRElbY = rElbY * (1f - jackFactor) + jackRElboY * jackFactor
-                val fRHndX = rHndX * (1f - jackFactor) + jackRHandX * jackFactor
-                val fRHndY = rHndY * (1f - jackFactor) + jackRHandY * jackFactor
-
-                val fLKneX = lKneX * (1f - jackFactor) + jackLKneeX * jackFactor
-                val fLKneY = lKneY * (1f - jackFactor) + jackLKneeY * jackFactor
-                val fLFotX = lFotX * (1f - jackFactor) + jackLFootX * jackFactor
-                val fLFotY = lFotY * (1f - jackFactor) + jackLFootY * jackFactor
-
-                val fRKneX = rKneX * (1f - jackFactor) + jackRKneeX * jackFactor
-                val fRKneY = rKneY * (1f - jackFactor) + jackRKneeY * jackFactor
-                val fRFotX = rFotX * (1f - jackFactor) + jackRFootX * jackFactor
-                val fRFotY = rFotY * (1f - jackFactor) + jackRFootY * jackFactor
-
-                // Draw exclusive Minimalist Skeleton Wireframe
-                val lineOfMeshColor = Color(0xFFD0BCFF) // Soft premium purple
-                val jointsColor = Color(0xFF7DFFB3) // Glowing neon emerald
-                val endpointsColor = Color(0xFFE6E1E5) // Cool white for extremities
-
-                // Bones
-                drawLine(lineOfMeshColor, Offset(basePelvisX, basePelvisY), Offset(neckX, neckY), strokeWidth = 1.6f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(rShldX, rShldY), strokeWidth = 1.4f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(rHipX, rHipY), strokeWidth = 1.4f * 1.dp.toPx())
-
-                // Left Arm
-                drawLine(lineOfMeshColor, Offset(lShldX, lShldY), Offset(fLElbX, fLElbY), strokeWidth = 1.2f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(fLElbX, fLElbY), Offset(fLHndX, fLHndY), strokeWidth = 1.0f * 1.dp.toPx())
-
-                // Right Arm
-                drawLine(lineOfMeshColor, Offset(rShldX, rShldY), Offset(fRElbX, fRElbY), strokeWidth = 1.2f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(fRElbX, fRElbY), Offset(fRHndX, fRHndY), strokeWidth = 1.0f * 1.dp.toPx())
-
-                // Left Leg
-                drawLine(lineOfMeshColor, Offset(lHipX, lHipY), Offset(fLKneX, fLKneY), strokeWidth = 1.4f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(fLKneX, fLKneY), Offset(fLFotX, fLFotY), strokeWidth = 1.1f * 1.dp.toPx())
-
-                // Right Leg
-                drawLine(lineOfMeshColor, Offset(rHipX, rHipY), Offset(fRKneX, fRKneY), strokeWidth = 1.4f * 1.dp.toPx())
-                drawLine(lineOfMeshColor, Offset(fRKneX, fRKneY), Offset(fRFotX, fRFotY), strokeWidth = 1.1f * 1.dp.toPx())
-
-                // Joint Nodes
-                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(lShldX, lShldY))
-                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(rShldX, rShldY))
-                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(fLElbX, fLElbY))
-                drawCircle(jointsColor, 3f * 1.dp.toPx(), Offset(fRElbX, fRElbY))
-                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(fLHndX, fLHndY))
-                drawCircle(endpointsColor, 2.5f * 1.dp.toPx(), Offset(fRHndX, fRHndY))
-
-                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(lHipX, lHipY))
-                drawCircle(jointsColor, 3.5f * 1.dp.toPx(), Offset(rHipX, rHipY))
-                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(fLKneX, fLKneY))
-                drawCircle(jointsColor, 3.2f * 1.dp.toPx(), Offset(fRKneX, fRKneY))
-                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(fLFotX, fLFotY))
-                drawCircle(endpointsColor, 2.8f * 1.dp.toPx(), Offset(fRFotX, fRFotY))
-
-                // Wireframe skull and visor inside
-                drawCircle(lineOfMeshColor, headRadius * 0.85f, Offset(headX, headY), style = Stroke(width = 1.2f * 1.dp.toPx()))
-                drawLine(jointsColor, Offset(headX - headRadius * 0.5f, headY), Offset(headX + headRadius * 0.5f, headY), strokeWidth = 1.8f * 1.dp.toPx())
-            }
-
-            // Real-Time HUD Statistics overlaid elegantly inside the corners
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(14.dp)
-            ) {
-                Text(
-                    text = "VEL. GIRO",
-                    color = Color(0xFF938F99),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Text(
-                    text = "${"%.1f°/s".format(angularSpeed * 57.295f)}",
-                    color = Color(0xFF7DFFB3),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(14.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                Text(
-                    text = "FORÇA G TOTAL",
-                    color = Color(0xFF938F99),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Text(
-                    text = "${"%.2f G".format(motionMagnitude / 9.81f)}",
-                    color = Color(0xFFD0BCFF),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // Sub footer text diagnostic status tracker
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF1C1B1F))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "CONEXÃO: SISTEMA DE TELEMETRIA ATIVO",
-                color = Color(0xFFCAC4D0),
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                text = "FILTRO SUAVE: ATIVADO",
-                color = Color(0xFF7DFFB3),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
-}
-
-@Composable
-fun SensorMetricVisualizer(
-    imuData: ImuData
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF49454F))
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            // Title and fallback badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Telemetria IMU em Tempo Real",
-                    color = Color(0xFFE6E1E5),
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                // Clear hardware sensors indicator
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF7DFFB3).copy(alpha = 0.15f))
-                        .border(
-                            1.dp,
-                            Color(0xFF7DFFB3),
-                            RoundedCornerShape(12.dp)
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "SENSORES FÍSICOS",
-                        color = Color(0xFF7DFFB3),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Live 3D skeleton model
-            OrientationVisualizer(imuData = imuData)
-
-            // Metrics Grid (Accelerometer & Gyroscope)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Accelerometer Column
-                SensorMetricBlock(
-                    modifier = Modifier.weight(1f),
-                    title = "ACELERÔMETRO",
-                    subtitle = "m/s² (com gravidade)",
-                    colorTheme = Color(0xFFD0BCFF),
-                    valX = imuData.accelX,
-                    valY = imuData.accelY,
-                    valZ = imuData.accelZ
-                )
-
-                // Gyroscope Column
-                SensorMetricBlock(
-                    modifier = Modifier.weight(1f),
-                    title = "GIROSCÓPIO",
-                    subtitle = "rad/s (vel. angular)",
-                    colorTheme = Color(0xFFE8DEF8),
-                    valX = imuData.gyroX,
-                    valY = imuData.gyroY,
-                    valZ = imuData.gyroZ
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun SensorMetricBlock(
-    modifier: Modifier = Modifier,
-    title: String,
-    subtitle: String,
-    colorTheme: Color,
-    valX: Float,
-    valY: Float,
-    valZ: Float
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF1C1B1F))
-            .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Column {
-            Text(text = title, color = colorTheme, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-            Text(text = subtitle, color = Color(0xFFCAC4D0), fontSize = 9.sp)
-        }
-
-        HorizontalDivider(color = Color(0xFF49454F), thickness = 0.5.dp)
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            val labelColor = Color(0xFF938F99)
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Text(text = "X", color = labelColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    text = "%.2f".format(valX),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Text(text = "Y", color = labelColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    text = "%.2f".format(valY),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Text(text = "Z", color = labelColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    text = "%.2f".format(valZ),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun StreamConfigurationCard(
-    targetUrl: String,
-    streamIntervalMs: Long,
-    isStreaming: Boolean,
-    successCount: Int,
-    errorCount: Int,
-    lastPayload: String,
-    onUrlChange: (String) -> Unit,
-    onIntervalChange: (Long) -> Unit,
-    onToggleStream: () -> Unit,
-    onClearStats: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF49454F))
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(
-                text = "Configuração do Envio Remoto",
-                color = Color(0xFFE6E1E5),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            // URL input path textfield
-            OutlinedTextField(
-                value = targetUrl,
-                onValueChange = onUrlChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("target_url_input"),
-                label = { Text("URL de Destino (POST)") },
-                placeholder = { Text("http://192.168.1.5:8000/api") },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFFD0BCFF),
-                    unfocusedBorderColor = Color(0xFF49454F),
-                    focusedLabelColor = Color(0xFFD0BCFF),
-                    unfocusedLabelColor = Color(0xFFCAC4D0),
-                    focusedTextColor = Color(0xFFE6E1E5),
-                    unfocusedTextColor = Color(0xFFE6E1E5),
-                    focusedContainerColor = Color(0xFF1C1B1F),
-                    unfocusedContainerColor = Color(0xFF1C1B1F)
-                ),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Uri,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(onDone = { /* Handle keyboard dismiss */ }),
-                enabled = !isStreaming
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = "Intervalo Fixo de Envio", color = Color(0xFFCAC4D0), fontSize = 12.sp)
-                Text(
-                    text = "${streamIntervalMs} ms (${"%.1f".format(1000f / streamIntervalMs)} Hz)",
-                    color = Color(0xFFD0BCFF),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Client Statistics telemetry counters
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF1C1B1F))
-                    .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(text = "CONTADORES DE TRANSMISSÃO", color = Color(0xFFCAC4D0), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-                    Row(
-                        modifier = Modifier.padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "Sucesso: $successCount",
-                            color = Color(0xFF7DFFB3),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = "Erro: $errorCount",
-                            color = Color(0xFFB3261E),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = onClearStats,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2B2930)),
-                    border = BorderStroke(1.dp, Color(0xFF49454F)),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Limpar", color = Color(0xFFE6E1E5), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            // Big Start/Stop button with Elegant Dark Theme colors
-            Button(
-                onClick = onToggleStream,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("stream_toggle_button"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isStreaming) Color(0xFFB3261E) else Color(0xFFD0BCFF),
-                    contentColor = if (isStreaming) Color.White else Color(0xFF381E72)
-                ),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isStreaming) Icons.Default.Close else Icons.Default.PlayArrow,
-                        contentDescription = if (isStreaming) "Parar Envio" else "Iniciar Envio"
-                    )
-                    Text(
-                        text = if (isStreaming) "PARAR TRANSMISSÃO DE DADOS" else "INICIAR ENVIO IMU (POST)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun WebserverControlCard(
-    isServerRunning: Boolean,
-    getIps: () -> List<String>,
-    onToggleServer: () -> Unit,
-    onCopyUrl: (String) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF49454F))
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Servidor Web Integrado",
-                        color = Color(0xFFE6E1E5),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Disponibilize um fluxo de telemetria JSON local",
-                        color = Color(0xFFCAC4D0),
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            HorizontalDivider(color = Color(0xFF49454F), thickness = 0.5.dp)
-
-            // IP addresses and routes list
-            if (isServerRunning) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "ENDPOINTS DE ACESSO ATIVOS (Toque para Copiar):",
-                        color = Color(0xFFD0BCFF),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    
-                    val ips = getIps()
-                    ips.forEach { ip ->
-                        val url = "http://$ip:8080/sensor-data"
-                        val postUrl = "http://$ip:8080/post-data"
-                        
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF1C1B1F))
-                                .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-                                .clickable { onCopyUrl(url) }
-                                .padding(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Share, contentDescription = "endpoint icon", tint = Color(0xFFD0BCFF), modifier = Modifier.size(14.dp))
-                                    Text(
-                                        text = "Rota API GET",
-                                        color = Color(0xFFCAC4D0),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFFE8DEF8))
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "COPIAR",
-                                        color = Color(0xFF1D192B),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            Text(
-                                text = url,
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                            
-                            Spacer(modifier = Modifier.height(4.dp))
-                            HorizontalDivider(color = Color(0xFF49454F), thickness = 0.5.dp)
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            Row {
-                                Text(
-                                    text = "POST JSON Bruto (para testar recebimento de texto externo): ",
-                                    color = Color(0xFFCAC4D0),
-                                    fontSize = 9.sp
-                                )
-                            }
-                            Text(
-                                text = postUrl,
-                                color = Color(0xFFD0BCFF),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF1C1B1F))
-                        .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Servidor offline",
-                            tint = Color(0xFFCAC4D0),
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Text(
-                            text = "O servidor local está offline",
-                            color = Color(0xFFE6E1E5),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Inicie o servidor para tornar as rotas JSON do IMU visíveis na mesma rede Wi-Fi.",
-                            color = Color(0xFFCAC4D0),
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-
-            // Start/Stop server button
-            Button(
-                onClick = onToggleServer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("server_toggle_button"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isServerRunning) Color(0xFFB3261E) else Color(0xFFD0BCFF),
-                    contentColor = if (isServerRunning) Color.White else Color(0xFF381E72)
-                ),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isServerRunning) Icons.Default.Close else Icons.Default.Refresh,
-                        contentDescription = "Alternar Servidor"
-                    )
-                    Text(
-                        text = if (isServerRunning) "DESATIVAR SERVIDOR" else "INICIAR SERVIDOR LOCAL (Porta 8080)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DataViewCard(
-    title: String,
-    jsonContent: String,
-    badgeColor: Color,
-    badgeText: String,
-    infoText: String,
-    testTag: String
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(testTag),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF49454F))
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    color = Color(0xFFE6E1E5),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(badgeColor.copy(alpha = 0.15f))
-                        .border(1.dp, badgeColor, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        color = badgeColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-
-            Text(
-                text = infoText,
-                color = Color(0xFFCAC4D0),
-                fontSize = 11.sp
-            )
-
-            // Monospaced Code Text Container (Terminals styled matching the theme definition)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 200.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF1C1B1F))
-                    .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-                    .padding(12.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Text(
-                    text = jsonContent,
-                    color = Color(0xFF7DFFB3), // Glowing text color
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun TerminalLogCard(
-    title: String,
-    logs: List<String>,
-    testTag: String
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(testTag),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF49454F))
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    color = Color(0xFFE6E1E5),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                // Torso
+                drawLine(boneColor, Offset(pelvisX, pelvisY), Offset(neckX, neckY), strokeWidth = 5f)
+                drawLine(boneColor, Offset(lShldX, lShldY), Offset(rShldX, rShldY), strokeWidth = 5f)
                 
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF49454F))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "LOGS DO CONSOLE",
-                        color = Color(0xFFE6E1E5),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+                // Head
+                drawCircle(boneColor, 12.dp.toPx(), Offset(neckX, neckY - 15.dp.toPx()), style = Stroke(width = 3f))
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(130.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF1C1B1F))
-                    .border(1.dp, Color(0xFF49454F), RoundedCornerShape(16.dp))
-                    .padding(10.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                if (logs.isEmpty()) {
-                    Text(
-                        text = "Inicializando logs do terminal...\nAguardando atividade...",
-                        color = Color(0xFFCAC4D0),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp
-                    )
-                } else {
-                    Column {
-                        logs.forEach { log ->
-                            Text(
-                                text = log,
-                                color = if (log.contains("Success", ignoreCase = true) || log.contains("started", ignoreCase = true)) {
-                                    Color(0xFF7DFFB3)
-                                } else if (log.contains("Fail", ignoreCase = true) || log.contains("error", ignoreCase = true)) {
-                                    Color(0xFFB3261E)
-                                } else {
-                                    Color(0xFFE6E1E5)
-                                },
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(vertical = 1.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+                // Movement calculation
+                val armLen = 25.dp.toPx()
+                val legLen = 30.dp.toPx()
+                
+                // Arms (Responsive to jackFactor)
+                val armAngleL = (Math.PI * 0.75 + jackFactor * Math.PI * 0.6).toFloat()
+                val armAngleR = (Math.PI * 0.25 - jackFactor * Math.PI * 0.6).toFloat()
+                
+                val lElbowX = lShldX + armLen * kotlin.math.cos(armAngleL)
+                val lElbowY = lShldY + armLen * kotlin.math.sin(armAngleL)
+                val rElbowX = rShldX + armLen * kotlin.math.cos(armAngleR)
+                val rElbowY = rShldY + armLen * kotlin.math.sin(armAngleR)
 
+                drawLine(limbColor, Offset(lShldX, lShldY), Offset(lElbowX, lElbowY), strokeWidth = 4f)
+                drawLine(limbColor, Offset(rShldX, rShldY), Offset(rElbowX, rElbowY), strokeWidth = 4f)
 
-@Composable
-fun VerdictFeedbackCard(verdict: Verdict) {
-    val isGood = verdict.formQuality == "GOOD"
-    val isBad = verdict.formQuality == "NEEDS_IMPROVEMENT"
-    val cardColor = when {
-        isGood -> Color(0xFF10B981)
-        isBad -> Color(0xFFEF4444)
-        else -> Color(0xFFF59E0B)
-    }
-    val statusText = if (verdict.isJacking) "POLICHINELO" else "REPOUSO"
+                // Legs (Responsive to jump/jack)
+                val hipWidth = 12.dp.toPx()
+                val lHipX = pelvisX - hipWidth
+                val rHipX = pelvisX + hipWidth
+                
+                val legAngleL = (Math.PI * 0.5 + jackFactor * 0.4).toFloat()
+                val legAngleR = (Math.PI * 0.5 - jackFactor * 0.4).toFloat()
+                
+                val lFootX = lHipX + legLen * kotlin.math.cos(legAngleL)
+                val lFootY = pelvisY + legLen * kotlin.math.sin(legAngleL)
+                val rFootX = rHipX + legLen * kotlin.math.cos(legAngleR)
+                val rFootY = pelvisY + legLen * kotlin.math.sin(legAngleR)
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, cardColor)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(cardColor.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = when {
-                                isGood -> Icons.Default.Check
-                                isBad -> Icons.Default.Close
-                                else -> Icons.Default.Info
-                            },
-                            contentDescription = "Status",
-                            tint = cardColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = statusText,
-                            color = cardColor,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Forma: ${verdict.formQuality}",
-                            color = Color(0xFFCAC4D0),
-                            fontSize = 12.sp
-                        )
-                    }
-                }
+                drawLine(limbColor, Offset(lHipX, pelvisY), Offset(lFootX, lFootY), strokeWidth = 4f)
+                drawLine(limbColor, Offset(rHipX, pelvisY), Offset(rFootX, rFootY), strokeWidth = 4f)
 
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1C1B1F)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${(verdict.confidence * 100).toInt()}%",
-                        color = cardColor,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF1C1B1F))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Reps: ${verdict.repCount}  Dist: ${verdict.distanceCm}cm  Manual: ${verdict.manualReps}",
-                    color = Color(0xFF938F99),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
+                // Joints
+                drawCircle(jointColor, 5f, Offset(lShldX, lShldY))
+                drawCircle(jointColor, 5f, Offset(rShldX, rShldY))
+                drawCircle(jointColor, 5f, Offset(pelvisX, pelvisY))
+                drawCircle(jointColor, 4f, Offset(lElbowX, lElbowY))
+                drawCircle(jointColor, 4f, Offset(rElbowX, rElbowY))
+                drawCircle(jointColor, 4f, Offset(lFootX, lFootY))
+                drawCircle(jointColor, 4f, Offset(rFootX, rFootY))
             }
         }
     }
 }
 
 @Composable
-fun Esp32ConfigCard(
-    esp32Url: String,
-    isEsp32Polling: Boolean,
-    onUrlChange: (String) -> Unit,
-    onTogglePolling: () -> Unit,
-    onScanQr: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF49454F))
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Conexao ESP32 (Postura)",
-                    color = Color(0xFFE6E1E5),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                StatusPill(
-                    label = if (isEsp32Polling) "CONECTADO" else "DESLIGADO",
-                    isActive = isEsp32Polling,
-                    activeColor = Color(0xFF10B981)
-                )
-            }
-
-            OutlinedTextField(
-                value = esp32Url,
-                onValueChange = onUrlChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("esp32_url_input"),
-                label = { Text("URL do ESP32") },
-                placeholder = { Text("http://192.168.1.200") },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF10B981),
-                    unfocusedBorderColor = Color(0xFF49454F),
-                    focusedLabelColor = Color(0xFF10B981),
-                    unfocusedLabelColor = Color(0xFFCAC4D0),
-                    focusedTextColor = Color(0xFFE6E1E5),
-                    unfocusedTextColor = Color(0xFFE6E1E5),
-                    focusedContainerColor = Color(0xFF1C1B1F),
-                    unfocusedContainerColor = Color(0xFF1C1B1F)
-                ),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Uri,
-                    imeAction = ImeAction.Done
-                ),
-                enabled = !isEsp32Polling
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = onTogglePolling,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isEsp32Polling) Color(0xFFEF4444) else Color(0xFF10B981),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isEsp32Polling) Icons.Default.Close else Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isEsp32Polling) "Desconectar" else "Conectar",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onScanQr,
-                    modifier = Modifier.width(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF49454F))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.QrCodeScanner,
-                        contentDescription = "Ler QR Code",
-                        tint = Color(0xFFD0BCFF)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ModeSelectorComponent(
-    selectedMode: DetectionMode,
-    onModeSelected: (DetectionMode) -> Unit,
-    isCameraActive: Boolean
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color.Transparent)
-            .border(1.dp, Color(0xFF938F99), RoundedCornerShape(24.dp))
-            .padding(1.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val modes = listOf(
-            DetectionMode.IMU to "IMU",
-            DetectionMode.CAMERA to "Camera",
-            DetectionMode.BOTH to "Ambos"
-        )
-        modes.forEach { (mode, label) ->
-            val isSelected = selectedMode == mode
-            val bgColor by animateColorAsState(
-                targetValue = if (isSelected) Color(0xFFE8DEF8) else Color.Transparent,
-                animationSpec = tween(150),
-                label = "mode_bg_${mode.name}"
-            )
-            val textColor by animateColorAsState(
-                targetValue = if (isSelected) Color(0xFF1D192B) else Color(0xFFCAC4D0),
-                animationSpec = tween(150),
-                label = "mode_text_${mode.name}"
-            )
-
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(bgColor)
-                    .clickable { onModeSelected(mode) }
-                    .padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (mode == DetectionMode.CAMERA || mode == DetectionMode.BOTH) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(if (isCameraActive) Color(0xFF7DFFB3) else Color(0xFF938F99))
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-                Text(
-                    text = label,
-                    color = textColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun JackResultFeedbackCard(result: JackResult) {
-    val isGood = result.formQuality == com.example.ml.FormQuality.GOOD
-    val isBad = result.formQuality == com.example.ml.FormQuality.NEEDS_IMPROVEMENT
-    val cardColor = when {
-        isGood -> Color(0xFF10B981)
-        isBad -> Color(0xFFF59E0B)
-        else -> Color(0xFF938F99)
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, cardColor)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(cardColor.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = when {
-                                isGood -> Icons.Default.Check
-                                result.isJacking -> Icons.Default.Info
-                                else -> Icons.Default.Info
-                            },
-                            contentDescription = "Status",
-                            tint = cardColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = if (result.isJacking) "POLICHINELO DETECTADO" else "AGUARDANDO...",
-                            color = cardColor,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (result.details.isNotEmpty()) {
-                            Text(
-                                text = result.details,
-                                color = Color(0xFFCAC4D0),
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                }
-
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "${result.repCount} reps",
-                        color = Color(0xFFD0BCFF),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF1C1B1F))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Fonte: ${result.source.name}",
-                    color = Color(0xFF938F99),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (result.imuConfidence > 0f) {
-                        Text(
-                            text = "IMU: ${"%.0f".format(result.imuConfidence * 100)}%",
-                            color = Color(0xFF7DFFB3),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                    if (result.poseConfidence > 0f) {
-                        Text(
-                            text = "Pose: ${"%.0f".format(result.poseConfidence * 100)}%",
-                            color = Color(0xFFD0BCFF),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CameraViewport(
-    poseResult: PoseResult?,
-    isCameraActive: Boolean,
+fun MainScreen(
+    viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
-    val viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val scope = rememberCoroutineScope()
+    val selectedMode by viewModel.selectedMode.collectAsStateWithLifecycle()
+    val jackResult by viewModel.jackResult.collectAsStateWithLifecycle()
+    val poseResult by viewModel.poseResult.collectAsStateWithLifecycle()
+    val isCameraActive by viewModel.isCameraActive.collectAsStateWithLifecycle()
+    val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
+    val successCount by viewModel.successCount.collectAsStateWithLifecycle()
+    val errorCount by viewModel.errorCount.collectAsStateWithLifecycle()
+    val streamLogs by viewModel.streamLogs.collectAsStateWithLifecycle()
+    val targetUrl by viewModel.targetUrl.collectAsStateWithLifecycle()
+    val imuState by viewModel.imuState.collectAsStateWithLifecycle()
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, Color(0xFF49454F))
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "DETECCAO POR CAMERA",
-                    color = Color(0xFFD0BCFF),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                StatusPill(
-                    label = if (isCameraActive) "ATIVO" else "INATIVO",
-                    isActive = isCameraActive,
-                    activeColor = Color(0xFF7DFFB3)
+    val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    
+    var showLogs by remember { mutableStateOf(false) }
+
+    val cameraPermission = android.Manifest.permission.CAMERA
+    val permissionState = remember { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        permissionState.value = granted
+        if (granted) viewModel.startCamera()
+    }
+
+    LaunchedEffect(selectedMode) {
+        if (selectedMode == DetectionMode.CAMERA) {
+            if (permissionState.value) viewModel.startCamera()
+            else permissionLauncher.launch(cameraPermission)
+        } else {
+            viewModel.stopCamera()
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFF3B82F6).copy(alpha = 0.15f), Color.Transparent),
+                        center = Offset(size.width * 0.8f, size.height * 0.2f),
+                        radius = size.width
+                    )
                 )
             }
+            .padding(20.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("GymBro Tracker", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        Text("Mantenha o foco. Eu cuido das repetições.", color = Color(0xFF94A3B8), fontSize = 16.sp, textAlign = TextAlign.Center)
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(260.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF1C1B1F))
-                    .border(1.dp, Color(0xFF49454F), RoundedCornerShape(20.dp))
-            ) {
-                CameraPreview(
-                    modifier = Modifier.fillMaxSize(),
-                    onFrame = { bitmap ->
-                        scope.launch(Dispatchers.Default) {
-                            val result = viewModel.poseDetector.detect(bitmap)
-                            viewModel.onFrameProcessed(result)
-                        }
-                    },
-                    cameraActive = isCameraActive
-                )
-
-                PoseOverlay(
-                    poseResult = poseResult,
-                    modifier = Modifier.fillMaxSize()
-                )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            shape = RoundedCornerShape(32.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(if (jackResult?.isJacking == true) "EXERCITANDO" else "AGUARDANDO", color = if (jackResult?.isJacking == true) Color(0xFF34D399) else Color(0xFF64748B), fontWeight = FontWeight.Bold, letterSpacing = 2.sp, fontSize = 12.sp)
+                Text("${jackResult?.repCount ?: 0}", color = Color.White, fontSize = 84.sp, fontWeight = FontWeight.Black)
+                Text("REPETIÇÕES", color = Color(0xFF94A3B8), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
         }
+
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFF1E293B)).padding(4.dp)) {
+            listOf(DetectionMode.IMU to "Sensor", DetectionMode.CAMERA to "Câmera").forEach { (mode, label) ->
+                val isSelected = selectedMode == mode
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (isSelected) Color(0xFF3B82F6) else Color.Transparent).clickable { viewModel.setDetectionMode(mode) }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    Text(label, color = if (isSelected) Color.White else Color(0xFF94A3B8), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        if (selectedMode == DetectionMode.CAMERA) {
+            Box(modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(24.dp)).background(Color.Black).border(2.dp, Color(0xFF334155), RoundedCornerShape(24.dp))) {
+                CameraPreview(modifier = Modifier.fillMaxSize(), onFrame = { bitmap -> viewModel.onFrameProcessed(viewModel.poseDetector.detect(bitmap)) }, cameraActive = isCameraActive)
+                PoseOverlay(poseResult = poseResult, modifier = Modifier.fillMaxSize())
+            }
+        } else {
+            OrientationVisualizer(imuData = imuState, modifier = Modifier.fillMaxWidth().height(300.dp))
+        }
+
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.5f)), shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color(0xFF334155))) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Cloud,
+                        contentDescription = null,
+                        tint = if (isStreaming && errorCount == 0) Color(0xFF34D399) else if (isStreaming && errorCount > 0) Color(0xFFFBBF24) else Color(0xFF3B82F6)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Sincronizar Treino", color = Color.White, fontWeight = FontWeight.Bold)
+                        if (isStreaming) {
+                            val statusText = if (errorCount > 0) "Problemas na conexão" else "Conectado"
+                            val statusColor = if (errorCount > 0) Color(0xFFFBBF24) else Color(0xFF34D399)
+                            Text(statusText, color = statusColor, fontSize = 11.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Switch(checked = isStreaming, onCheckedChange = { viewModel.toggleStreaming() }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF3B82F6)))
+                }
+                
+                if (!isStreaming) {
+                    OutlinedTextField(value = targetUrl, onValueChange = { viewModel.updateTargetUrl(it) }, modifier = Modifier.fillMaxWidth(), label = { Text("URL do Servidor") }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color(0xFF334155), focusedBorderColor = Color(0xFF3B82F6), unfocusedTextColor = Color.White, focusedTextColor = Color.White), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }))
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF0F172A))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("SUCESSO: $successCount", color = Color(0xFF34D399), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("FALHAS: $errorCount", color = if (errorCount > 0) Color(0xFFEF4444) else Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        TextButton(onClick = { showLogs = !showLogs }) {
+                            Text(if (showLogs) "Ocultar Logs" else "Ver Logs", color = Color(0xFF3B82F6), fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                AnimatedVisibility(visible = showLogs && isStreaming) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black)
+                            .padding(8.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = streamLogs.joinToString("\n"),
+                            color = Color(0xFF34D399),
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(20.dp))
     }
 }

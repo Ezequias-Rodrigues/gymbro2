@@ -17,7 +17,8 @@ import java.util.concurrent.Executors
 
 class EmbeddedWebserver(
     private val port: Int = 8080,
-    private val getSensorJson: () -> String
+    private val getSensorJson: () -> String,
+    private val getLatestJackResult: () -> String = { "{}" }
 ) {
     private var server: HttpServer? = null
     private val executor = Executors.newSingleThreadExecutor()
@@ -47,6 +48,8 @@ class EmbeddedWebserver(
                 createContext("/sensor-data", SensorDataHandler())
                 // Route 3: Listen for incoming JSON POSTs to test receiving custom JSON on screen
                 createContext("/post-data", PostDataHandler())
+                // Route 4: Serve latest jumping jack result for ESP32 polling
+                createContext("/api/jackresult", JackResultHandler())
                 
                 executor = this@EmbeddedWebserver.executor
                 start()
@@ -213,6 +216,20 @@ class EmbeddedWebserver(
                 exchange.responseBody.write(bytes)
                 exchange.responseBody.close()
             }
+        }
+    }
+
+    inner class JackResultHandler : HttpHandler {
+        override fun handle(exchange: HttpExchange) {
+            val method = exchange.requestMethod
+            addLog("$method /api/jackresult de ${exchange.remoteAddress}")
+            val json = getLatestJackResult()
+            val bytes = json.toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.set("Content-Type", "application/json")
+            exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.write(bytes)
+            exchange.responseBody.close()
         }
     }
 }

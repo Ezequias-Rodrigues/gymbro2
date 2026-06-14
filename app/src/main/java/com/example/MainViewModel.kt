@@ -2,16 +2,15 @@ package com.example
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import com.example.client.Esp32Client
 import com.example.client.StreamClient
 import com.example.ml.DetectionMode
+import com.example.ml.FormQuality
 import com.example.ml.JackClassifier
 import com.example.ml.JackResult
 import com.example.ml.PoseDetector
 import com.example.ml.PoseResult
 import com.example.model.Verdict
 import com.example.sensor.SensorTracker
-import com.example.server.EmbeddedWebserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,26 +19,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sensorTracker = SensorTracker(application)
     private val streamClient = StreamClient()
-    private val esp32Client = Esp32Client()
     val jackClassifier = JackClassifier()
     val poseDetector = PoseDetector(application)
 
-    private val embeddedWebserver = EmbeddedWebserver(port = 8080) {
-        sensorTracker.imuState.value.toJsonString()
-    }
-
     val imuState = sensorTracker.imuState
     val isSimulating = sensorTracker.isSimulating
-
-    val isServerRunning = embeddedWebserver.isServerRunning
-    val serverLogs = embeddedWebserver.serverLogs
-    val lastServedJson = embeddedWebserver.lastServedJson
-    val lastReceivedJson = embeddedWebserver.lastReceivedJson
 
     val isStreaming = streamClient.isStreaming
     val successCount = streamClient.successCount
@@ -48,14 +38,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val lastPostPayload = streamClient.lastPostPayload
 
     // UI Settings
-    private val _targetUrl = MutableStateFlow("http://192.168.1.100:8000/api/imu")
+    private val _targetUrl = MutableStateFlow("https://reasonable-unity-production.up.railway.app/api/jackresult")
     val targetUrl = _targetUrl.asStateFlow()
 
-    private val _streamIntervalMs = MutableStateFlow(1000L)
+    private val _streamIntervalMs = MutableStateFlow(500L)
     val streamIntervalMs = _streamIntervalMs.asStateFlow()
-
-    private val _selectedTab = MutableStateFlow(0)
-    val selectedTab = _selectedTab.asStateFlow()
 
     // Detection Mode
     private val _selectedMode = MutableStateFlow(DetectionMode.IMU)
@@ -70,28 +57,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isCameraActive = MutableStateFlow(false)
     val isCameraActive: StateFlow<Boolean> = _isCameraActive.asStateFlow()
 
-    private val _cameraFps = MutableStateFlow(0f)
-    val cameraFps: StateFlow<Float> = _cameraFps.asStateFlow()
-
-    // ESP32 / Verdict
+    // Verdict populated from local jack result
     private val _verdict = MutableStateFlow<Verdict?>(null)
     val verdict = _verdict.asStateFlow()
 
-    private val _esp32Url = MutableStateFlow("http://192.168.1.200")
-    val esp32Url = _esp32Url.asStateFlow()
-
-    private val _isEsp32Polling = MutableStateFlow(false)
-    val isEsp32Polling = _isEsp32Polling.asStateFlow()
-
-    private var esp32PollingJob: Job? = null
-    private val esp32Scope = CoroutineScope(Dispatchers.IO)
     private val mlScope = CoroutineScope(Dispatchers.Default)
-
     private var jackJob: Job? = null
-    private var lastSentJack: JackResult? = null
+
+    private val _imuRepCount = MutableStateFlow(0)
+    val imuRepCount: StateFlow<Int> = _imuRepCount.asStateFlow()
+
+    private var lastJumpTime = 0L
 
     init {
         sensorTracker.start()
+        startJackLoop() // Tracking always active for IMU
     }
 
     fun updateTargetUrl(url: String) {
@@ -102,37 +82,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _streamIntervalMs.value = interval
     }
 
-    fun setSelectedTab(index: Int) {
-        _selectedTab.value = index
-    }
-
     fun setDetectionMode(mode: DetectionMode) {
         val prev = _selectedMode.value
         _selectedMode.value = mode
 
         if (mode == DetectionMode.IMU) {
             stopCamera()
-        } else if (mode == DetectionMode.CAMERA || mode == DetectionMode.BOTH) {
+        } else if (mode == DetectionMode.CAMERA) {
             if (prev == DetectionMode.IMU) {
                 startCamera()
             }
-        }
-
-        if (prev == DetectionMode.CAMERA && mode == DetectionMode.BOTH) {
-            // camera already running
         }
     }
 
     fun startCamera() {
         if (!poseDetector.load()) return
         _isCameraActive.value = true
-        startJackLoop()
+        // Loop is already running from init
     }
 
     fun stopCamera() {
         _isCameraActive.value = false
         _poseResult.value = null
-        stopJackLoop()
         poseDetector.close()
     }
 
@@ -149,7 +120,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val mode = _selectedMode.value
 
                 val result = jackClassifier.classify(imu, pose, mode)
-                _jackResult.value = result
+                
+                // Enhanced IMU jump detection logic
+                val motionMag = kotlin.math.sqrt(imu.accelX * imu.accelX + imu.accelY * imu.accelY + imu.accelZ * imu.accelZ)
+                val curTime = System.currentTimeMillis()
+                
+                // Threshold lowered to 13.2 for better sensitivity
+                val isCurrentlyJumping = motionMag > 13.2f 
+                
+                if (isCurrentlyJumping && curTime - lastJumpTime > 1000) {
+                    lastJumpTime = curTime
+                    _imuRepCount.value += 1
+                }
+
+                val currentIsJacking = (System.currentTimeMillis() - lastJumpTime < 1000)
+
+                val updatedResult = if (mode == DetectionMode.IMU) {
+                    result.copy(
+                        repCount = _imuRepCount.value, 
+                        isJacking = currentIsJacking,
+                        imuConfidence = if (currentIsJacking) 0.98f else 0.02f
+                    )
+                } else {
+                    result
+                }
+                
+                _jackResult.value = updatedResult
+
+                // Update local verdict
+                _verdict.value = Verdict(
+                    repCount = updatedResult.repCount,
+                    formQuality = updatedResult.formQuality.name,
+                    isJacking = updatedResult.isJacking,
+                    confidence = maxOf(updatedResult.imuConfidence, updatedResult.poseConfidence),
+                    distanceCm = 0,
+                    manualReps = 0
+                )
 
                 delay(100)
             }
@@ -161,6 +167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         jackJob = null
         jackClassifier.reset()
         _jackResult.value = null
+        _verdict.value = null
     }
 
     fun toggleStreaming() {
@@ -170,17 +177,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             streamClient.startStreaming(
                 targetUrl = _targetUrl.value,
                 intervalMs = _streamIntervalMs.value,
-                getPayload = { sensorTracker.imuState.value.toJsonString() }
+                getPayload = {
+                    try {
+                        val jr = _jackResult.value
+                        val imu = sensorTracker.imuState.value
+                        
+                        if (jr == null) "{}"
+                        else JSONObject().apply {
+                            put("isJacking", jr.isJacking)
+                            put("repCount", jr.repCount)
+                            put("formQuality", jr.formQuality.name)
+                            put("confidence", maxOf(jr.imuConfidence, jr.poseConfidence))
+                            put("timestamp", System.currentTimeMillis())
+                            put("imuData", imu.toJsonString())
+                        }.toString()
+                    } catch (e: Exception) {
+                        "{ \"error\": \"${e.message}\" }"
+                    }
+                }
             )
-        }
-    }
-
-    fun toggleWebserver(): String {
-        return if (isServerRunning.value) {
-            embeddedWebserver.stop()
-            "Server stopped"
-        } else {
-            embeddedWebserver.start()
         }
     }
 
@@ -188,62 +203,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sensorTracker.forceSimulation(!isSimulating.value)
     }
 
-    fun getLocalIpAddresses(): List<String> {
-        return embeddedWebserver.getLocalIpAddresses()
-    }
-
     fun clearClientStats() {
         streamClient.clearStats()
-    }
-
-    // ESP32 Functions
-    fun updateEsp32Url(url: String) {
-        _esp32Url.value = url
-    }
-
-    fun toggleEsp32Polling() {
-        if (_isEsp32Polling.value) {
-            stopEsp32Polling()
-        } else {
-            startEsp32Polling()
-        }
-    }
-
-    private fun startEsp32Polling() {
-        if (_isEsp32Polling.value) return
-        _isEsp32Polling.value = true
-        val url = _esp32Url.value
-
-        esp32PollingJob = esp32Scope.launch {
-            while (true) {
-                val jack = _jackResult.value
-                if (jack != null && jack != lastSentJack) {
-                    esp32Client.sendJackResult(url, jack)
-                    lastSentJack = jack
-                }
-
-                val result = esp32Client.pollVerdict(url)
-                result.onSuccess { v ->
-                    _verdict.value = v
-                }
-                delay(500)
-            }
-        }
-    }
-
-    private fun stopEsp32Polling() {
-        esp32PollingJob?.cancel()
-        esp32PollingJob = null
-        _isEsp32Polling.value = false
-        _verdict.value = null
+        _imuRepCount.value = 0
     }
 
     override fun onCleared() {
         super.onCleared()
-        stopEsp32Polling()
         stopCamera()
         sensorTracker.stop()
-        embeddedWebserver.stop()
         streamClient.stopStreaming()
         jackJob?.cancel()
         poseDetector.close()
