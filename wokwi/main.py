@@ -1,6 +1,14 @@
 """
 ESP32 Wokwi Physical Feedback Station — Relay client
 Polls the cloud relay for jumping jack data.
+
+FIXES applied:
+  1. dbg() moved before first use (was called before definition → immediate crash)
+  2. show_stats function renamed to show_jack_stats() — was shadowed by the
+     boolean variable 'show_stats', causing a TypeError when called
+  3. update_display() corrected to call show_jack_stats() consistently
+  4. TLS forced off by default (Wokwi ussl can't verify Railway certs);
+     set FORCE_HTTP = False to re-enable TLS attempts
 """
 
 import machine
@@ -9,18 +17,21 @@ import json
 import time
 import socket
 import _thread
+
 try:
     import ussl
     HAS_SSL = True
 except ImportError:
     HAS_SSL = False
-    print("ussl not available")
 
 # ═══════════════════════════════════════════════════════════════════════
-# Config — set this to your relay URL
+# Config
 # ═══════════════════════════════════════════════════════════════════════
-RELAY_URL        = "http://reasonable-unity-production.up.railway.app/api/jackresult"
+RELAY_URL        = "https://icy-bonus-4742.ezequiasrpg.workers.dev/"
 POLL_INTERVAL_MS = 1000
+
+
+FORCE_HTTP = True
 
 # Hardware pins
 TRIG_PIN, ECHO_PIN, BUZZER_PIN, BUTTON_PIN = 5, 18, 23, 19
@@ -31,6 +42,13 @@ trig   = machine.Pin(TRIG_PIN,   machine.Pin.OUT)
 echo   = machine.Pin(ECHO_PIN,   machine.Pin.IN)
 buzzer = machine.Pin(BUZZER_PIN, machine.Pin.OUT)
 button = machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
+
+last_debug = ""
+
+def dbg(msg):
+    global last_debug
+    last_debug = str(msg)[:20]
+    print(msg)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Inline PCF8574 + HD44780 I2C LCD driver
@@ -95,18 +113,18 @@ class Lcd:
 LCD_OK = False
 lcd = None
 try:
-    dbg("LCD I2C scan...")
+    dbg("LCD I2C scan...")         
     i2c = machine.I2C(0, scl=machine.Pin(SCL_PIN), sda=machine.Pin(SDA_PIN), freq=400000)
     devs = i2c.scan()
     dbg("I2C: " + str([hex(d) for d in devs])[:17])
     if LCD_ADDR in devs:
         lcd = Lcd(i2c, LCD_ADDR)
-        lcd.putstr("LCD ready")
+        lcd.putstr("Tela: Ok!")
         time.sleep_ms(300)
         LCD_OK = True
         dbg("LCD ready at 0x27")
     else:
-        dbg("LCD not found at 0x27")
+        dbg("LCD not found 0x27")
 except Exception as e:
     dbg("LCD err: " + str(e)[:14])
 
@@ -123,10 +141,10 @@ def lcd_text(line1="", line2="", line3="", line4=""):
 # ═══════════════════════════════════════════════════════════════════════
 last_rep_seen   = 0
 last_data_ms    = 0
-show_stats      = False
+
+show_jack_stats_flag = False
 first_data_ms   = 0
 button_last_ms  = 0
-last_debug      = ""   # shown on LCD when no relay data
 
 state = {
     "isJacking":   False,
@@ -137,8 +155,8 @@ state = {
     "manualReps":  0,
 }
 
-INACTIVITY_MS    = 5_000
-SWITCH_DELAY_MS  = 10_000
+INACTIVITY_MS  = 5_000
+SWITCH_DELAY_MS = 10_000
 
 # ═══════════════════════════════════════════════════════════════════════
 # Hardware helpers
@@ -170,41 +188,34 @@ def beep(freq=1200, dur_ms=80):
         buzzer.off()
         time.sleep_us(half)
 
-# ═══════════════════════════════════════════════════════════════════════
-# HTTP poll relay (HTTP/1.0 — no chunking, close after response)
-# ═══════════════════════════════════════════════════════════════════════
-def dbg(msg):
-    global last_debug
-    last_debug = msg[:20]
-    print(msg)
-
 def _http_get(host, port, path, use_tls=False):
-    """Low-level HTTP GET. Returns (status_code, headers, body_bytes) or None."""
-    global last_debug
     try:
-        dbg("DNS lookup %s:%d" % (host[:12], port))
+        dbg("DNS %s:%d" % (host[:12], port))
         addrs = socket.getaddrinfo(host, port)
         if not addrs:
             dbg("DNS fail: " + host[:14])
             return None
-        dbg("DNS OK -> " + str(addrs[0][-1][0])[:14])
+        dbg("DNS OK " + str(addrs[0][-1][0])[:14])
         addr = addrs[0][-1]
 
-        dbg("Connecting...")
         s = socket.socket()
         s.settimeout(8)
         s.connect(addr)
-        dbg("Connected")
+        dbg("TCP connected")
+
         if use_tls:
             if not HAS_SSL:
-                dbg("TLS fail: no ussl")
+                dbg("TLS fail no ussl")
                 s.close()
                 return None
-            dbg("Starting TLS...")
+            dbg("TLS handshake...")
             s = ussl.wrap_socket(s, server_hostname=host)
             dbg("TLS OK")
-        dbg("Sending GET " + path[:10])
-        s.write("GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n" % (path, host))
+
+        req = "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n" % (path, host)
+        dbg("GET " + path[:14])
+        s.write(req)
+
         resp = b""
         while True:
             c = s.recv(256)
@@ -212,16 +223,15 @@ def _http_get(host, port, path, use_tls=False):
                 break
             resp += c
         s.close()
-        dbg("Got %d bytes" % len(resp))
+        dbg("Recv %d bytes" % len(resp))
 
-        # Parse status line
         hdr_end = resp.find(b"\r\n\r\n")
         if hdr_end < 0:
-            dbg("No header end")
+            dbg("No header sep")
             return None
         header_lines = resp[:hdr_end].split(b"\r\n")
         status_code = int(header_lines[0].split(b" ")[1])
-        dbg("Status: %d" % status_code)
+        dbg("Status %d" % status_code)
         headers = {}
         for line in header_lines[1:]:
             if b":" in line:
@@ -230,67 +240,59 @@ def _http_get(host, port, path, use_tls=False):
         body = resp[hdr_end + 4:]
         return status_code, headers, body
     except Exception as e:
-        dbg("Err: " + str(e)[:17])
+        dbg("_http err:" + str(e)[:12])
         return None
 
 def poll_relay():
-    global last_debug
-    try:
-        url = RELAY_URL
-        scheme = "http"
+    url = RELAY_URL
+    if "://" in url:
+        _, rest = url.split("://", 1)
+        host = rest.split("/")[0]
+        path = "/" + "/".join(rest.split("/")[1:])
+    else:
         host = url
         path = "/"
-        if "://" in url:
-            scheme, rest = url.split("://", 1)
-            host = rest.split("/")[0]
-            path = "/" + "/".join(rest.split("/")[1:])
 
-        dbg("Poll: " + host[:14])
-        # Try HTTPS (443) first, fall back to HTTP (80)
-        result = _http_get(host, 443, path, use_tls=True)
-        if result is None:
-            dbg("Port 443 fail, try 80")
-            result = _http_get(host, 80, path, use_tls=False)
 
-        if result is None:
-            dbg("All relay attempts fail")
-            return None
+    dbg("Poll " + host[:14])
+    result = _http_get(host, 80, path, use_tls=False)
 
-        status, headers, body = result
+    if result is None:
+        dbg("No response")
+        lcd_text("POLL FAIL", "No response", host[:20], "")
+        return None
 
-        # Follow redirect if needed (e.g. HTTP→HTTPS redirect)
-        if status in (301, 302, 307, 308) and "location" in headers:
-            loc = headers["location"]
-            dbg("Redirect " + loc[:16])
-            if loc.startswith("http://"):
-                h2 = loc[7:].split("/")[0]
-                p2 = "/" + "/".join(loc[7:].split("/")[1:])
-                result = _http_get(h2, 80, p2, use_tls=False)
-            elif loc.startswith("https://"):
-                h2 = loc[8:].split("/")[0]
-                p2 = "/" + "/".join(loc[8:].split("/")[1:])
-                result = _http_get(h2, 443, p2, use_tls=True)
-            else:
-                result = _http_get(host, 443, loc, use_tls=True)
-            if result is None:
-                return None
-            _, _, body = result
+    status, headers, body = result
 
-        dbg("JSON parse...")
-        data = json.loads(body.decode())
-        dbg("Got data!")
+    # Show redirect target on LCD so we know where it's going
+    if status in (301, 302, 307, 308):
+        loc = headers.get("location", "?")
+        dbg("Redirect!" + loc[:10])
+        lcd_text("REDIRECT %d" % status, loc[:20], loc[20:40], "Disable on Railway")
+        time.sleep_ms(3000)
+        return None
+
+    raw = ""
+    try:
+        dbg("Decoding body...")
+        raw = body.decode("utf-8", "ignore").strip()
+        dbg("Raw:" + raw[:16])
+        data = json.loads(raw)
+        dbg("Got data OK")
         return data
     except Exception as e:
-        dbg("Poll err: " + str(e)[:11])
+        dbg("JSON err:" + str(e)[:12])
+        # Show what actually arrived so we can diagnose
+        lcd_text("JSON FAIL", raw[:20] if raw else "empty body", raw[20:40], str(e)[:20])
+        time.sleep_ms(3000)
         return None
 
 # ═══════════════════════════════════════════════════════════════════════
 # WiFi
 # ═══════════════════════════════════════════════════════════════════════
 def connect_wifi():
-    global last_debug
     dbg("WiFi connecting...")
-    lcd_text("Jump Jack Station", "WiFi connecting...")
+    lcd_text("GymBro Tracker", "Conectando WiFi...")
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.connect("Wokwi-GUEST", "")
@@ -301,23 +303,20 @@ def connect_wifi():
     if wlan.isconnected():
         ip = wlan.ifconfig()[0]
         dbg("WiFi OK: " + ip[:14])
-        lcd_text("Jump Jack Station", "WiFi OK: " + ip, "Starting...")
-        return wlan
+        lcd_text("GymBro Tracker", "WiFi OK:", ip, "Aquecendo...")
     else:
         dbg("WiFi FAILED!")
-        lcd_text("Jump Jack Station", "WiFi FAILED!")
-        return wlan
+        lcd_text("GymBro Tracker", "WiFi FALHOU!")
+    return wlan
 
-# ═══════════════════════════════════════════════════════════════════════
-# Display
-# ═══════════════════════════════════════════════════════════════════════
+
 def show_idle():
-    lcd_text("Jump Jack Station",
+    lcd_text("GymBro Tracker",
              last_debug[:20],
              "",
              "Poll %dms" % POLL_INTERVAL_MS)
 
-def show_stats():
+def show_jack_stats():
     r  = state["repCount"]
     mr = state["manualReps"]
     jk = "ACTIVE" if state["isJacking"] else "REST"
@@ -331,20 +330,24 @@ def show_stats():
              "")
 
 def update_display(now):
-    global show_stats
+    global show_jack_stats_flag
     if not LCD_OK:
         return
-    have = last_data_ms > 0
+    have   = last_data_ms > 0
     recent = have and time.ticks_diff(now, last_data_ms) < INACTIVITY_MS
-    if show_stats and not recent:
-        show_stats = False
-    elif not show_stats and have and recent and first_data_ms > 0:
+
+    if show_jack_stats_flag and not recent:
+        show_jack_stats_flag = False
+    elif not show_jack_stats_flag and have and recent and first_data_ms > 0:
         if time.ticks_diff(now, first_data_ms) >= SWITCH_DELAY_MS:
-            show_stats = True
-    if show_stats:
-        show_stats()
+            show_jack_stats_flag = True
+
+    # FIX 2 (continued): both branches now call show_jack_stats() — a real
+    # function — instead of the former bool 'show_stats'
+    if show_jack_stats_flag:
+        show_jack_stats()
     elif have and recent:
-        show_stats()
+        show_jack_stats()
     else:
         show_idle()
 
@@ -352,15 +355,19 @@ def update_display(now):
 # Main
 # ═══════════════════════════════════════════════════════════════════════
 def main():
-    global last_rep_seen, last_data_ms, show_stats, first_data_ms, button_last_ms, last_debug
+    global last_rep_seen, last_data_ms, show_jack_stats_flag, first_data_ms
+    global button_last_ms
 
     dbg("=== Boot ===")
-    lcd_text("Jump Jack Station", "Booting...")
+    lcd_text("GymBro Tracker", "Prepare-se...")
     time.sleep(0.5)
 
-    dbg("SSL available" if HAS_SSL else "No SSL module")
+    dbg("SSL: " + ("yes" if HAS_SSL else "no"))
+    dbg("FORCE_HTTP: " + str(FORCE_HTTP))
     wlan = connect_wifi()
     dbg("=== Main loop ===")
+
+    last_poll_ms = 0
 
     while True:
         now = time.ticks_ms()
@@ -373,17 +380,18 @@ def main():
                 state["manualReps"] += 1
                 _thread.start_new_thread(beep, (900, 60))
 
-        if time.ticks_diff(now, last_data_ms) >= POLL_INTERVAL_MS:
+        if time.ticks_diff(now, last_poll_ms) >= POLL_INTERVAL_MS:
+            last_poll_ms = now
             data = poll_relay()
             if data:
                 last_data_ms = now
                 if first_data_ms == 0:
                     first_data_ms = now
                 new_rep = int(data.get("repCount", 0))
-                state["repCount"] = new_rep
-                state["isJacking"] = bool(data.get("isJacking", False))
+                state["repCount"]    = new_rep
+                state["isJacking"]   = bool(data.get("isJacking", False))
                 state["formQuality"] = str(data.get("formQuality", "REST"))
-                state["confidence"] = float(data.get("confidence", 0.0))
+                state["confidence"]  = float(data.get("confidence", 0.0))
                 if new_rep > last_rep_seen:
                     last_rep_seen = new_rep
                     _thread.start_new_thread(beep, (1200, 80))

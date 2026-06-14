@@ -3,7 +3,7 @@
   "author": "Feedback Station",
   "editor": "wokwi",
   "parts": [
-    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": -129.7, "left": -43.4, "attrs": {} },
     {
       "type": "wokwi-lcd2004",
       "id": "lcd",
@@ -11,21 +11,21 @@
       "left": 140,
       "attrs": { "pins": "i2c" }
     },
-    { "type": "wokwi-hc-sr04", "id": "ultrasonic", "top": 120, "left": 320, "attrs": {} },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "ultrasonic",
+      "top": -228.9,
+      "left": -80.9,
+      "attrs": { "distance": "202" }
+    },
     {
       "type": "wokwi-buzzer",
       "id": "buzzer",
-      "top": 220,
-      "left": -120,
+      "top": -324,
+      "left": 78.6,
       "attrs": { "volume": "0.5" }
     },
-    {
-      "type": "wokwi-pushbutton",
-      "id": "btn",
-      "top": -80,
-      "left": 320,
-      "attrs": { "color": "green" }
-    }
+    { "type": "wokwi-logo", "id": "logo1", "top": -297.6, "left": -67.2, "attrs": {} }
   ],
   "connections": [
     [ "esp:3V3", "lcd:VCC", "red", [] ],
@@ -36,10 +36,8 @@
     [ "esp:GND.2", "ultrasonic:GND", "black", [] ],
     [ "esp:D5", "ultrasonic:TRIG", "green", [] ],
     [ "esp:D18", "ultrasonic:ECHO", "orange", [] ],
-    [ "esp:D23", "buzzer:1", "purple", [] ],
-    [ "esp:GND.3", "buzzer:2", "black", [] ],
-    [ "esp:D19", "btn:1.l", "cyan", [] ],
-    [ "esp:GND.4", "btn:2.l", "black", [] ]
+    [ "esp:D23", "buzzer:1", "red", [] ],
+    [ "esp:GND.3", "buzzer:2", "black", [] ]
   ],
   "dependencies": {}
 }
