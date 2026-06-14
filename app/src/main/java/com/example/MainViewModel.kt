@@ -64,14 +64,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val mlScope = CoroutineScope(Dispatchers.Default)
     private var jackJob: Job? = null
 
-    private val _imuRepCount = MutableStateFlow(0)
-    val imuRepCount: StateFlow<Int> = _imuRepCount.asStateFlow()
+    private val _totalRepCount = MutableStateFlow(0)
+    val repCount: StateFlow<Int> = _totalRepCount.asStateFlow()
 
     private var lastJumpTime = 0L
+    private var lastCameraRepTime = 0L
+    private var cameraJackState = 0 // 0: Down, 1: Up
 
     init {
         sensorTracker.start()
-        startJackLoop() // Tracking always active for IMU
+        startJackLoop() 
     }
 
     fun updateTargetUrl(url: String) {
@@ -98,7 +100,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startCamera() {
         if (!poseDetector.load()) return
         _isCameraActive.value = true
-        // Loop is already running from init
     }
 
     fun stopCamera() {
@@ -120,34 +121,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val mode = _selectedMode.value
 
                 val result = jackClassifier.classify(imu, pose, mode)
-                
-                // Enhanced IMU jump detection logic
-                val motionMag = kotlin.math.sqrt(imu.accelX * imu.accelX + imu.accelY * imu.accelY + imu.accelZ * imu.accelZ)
+                val classifierResult = jackClassifier.classify(imu, pose, mode)
                 val curTime = System.currentTimeMillis()
                 
-                // Threshold lowered to 13.2 for better sensitivity
-                val isCurrentlyJumping = motionMag > 13.2f 
-                
-                if (isCurrentlyJumping && curTime - lastJumpTime > 1000) {
-                    lastJumpTime = curTime
-                    _imuRepCount.value += 1
+                var isJacking = false
+
+                if (mode == DetectionMode.IMU) {
+                    val motionMag = kotlin.math.sqrt(imu.accelX * imu.accelX + imu.accelY * imu.accelY + imu.accelZ * imu.accelZ)
+                    if (motionMag > 13.2f && curTime - lastJumpTime > 1000) {
+                        lastJumpTime = curTime
+                        _totalRepCount.value += 1
+                    }
+                    isJacking = (curTime - lastJumpTime < 1000)
+                } else if (mode == DetectionMode.CAMERA && pose != null) {
+                    // Simple Camera Rep Detection
+                    val keypoints = pose.keypoints
+                    if (keypoints.size > 10) {
+                        val lWrist = keypoints[9]
+                        val rWrist = keypoints[10]
+                        val lShoulder = keypoints[5]
+                        val rShoulder = keypoints[6]
+                        
+                        if (lWrist.score > 0.5f && rWrist.score > 0.5f) {
+                            val avgWristY = (lWrist.y + rWrist.y) / 2f
+                            val avgShoulderY = (lShoulder.y + rShoulder.y) / 2f
+                            
+                            if (cameraJackState == 0 && avgWristY < avgShoulderY - 0.05f) {
+                                cameraJackState = 1
+                            } else if (cameraJackState == 1 && avgWristY > avgShoulderY + 0.05f) {
+                                cameraJackState = 0
+                                if (curTime - lastCameraRepTime > 800) {
+                                    _totalRepCount.value += 1
+                                    lastCameraRepTime = curTime
+                                }
+                            }
+                        }
+                    }
+                    isJacking = (cameraJackState == 1) || (classifierResult.isJacking)
                 }
 
-                val currentIsJacking = (System.currentTimeMillis() - lastJumpTime < 1000)
-
-                val updatedResult = if (mode == DetectionMode.IMU) {
-                    result.copy(
-                        repCount = _imuRepCount.value, 
-                        isJacking = currentIsJacking,
-                        imuConfidence = if (currentIsJacking) 0.98f else 0.02f
-                    )
-                } else {
-                    result
-                }
+                val updatedResult = classifierResult.copy(
+                    repCount = _totalRepCount.value,
+                    isJacking = isJacking,
+                    imuConfidence = if (mode == DetectionMode.IMU && isJacking) 0.98f else classifierResult.imuConfidence,
+                    poseConfidence = if (mode == DetectionMode.CAMERA && isJacking) 0.98f else classifierResult.poseConfidence
+                )
                 
                 _jackResult.value = updatedResult
 
-                // Update local verdict
                 _verdict.value = Verdict(
                     repCount = updatedResult.repCount,
                     formQuality = updatedResult.formQuality.name,
@@ -157,17 +178,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     manualReps = 0
                 )
 
-                delay(100)
+                delay(50)
             }
         }
-    }
-
-    private fun stopJackLoop() {
-        jackJob?.cancel()
-        jackJob = null
-        jackClassifier.reset()
-        _jackResult.value = null
-        _verdict.value = null
     }
 
     fun toggleStreaming() {
@@ -205,7 +218,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearClientStats() {
         streamClient.clearStats()
-        _imuRepCount.value = 0
+        _totalRepCount.value = 0
     }
 
     override fun onCleared() {

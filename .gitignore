@@ -29,3 +29,5 @@ SETUP.html
 server_test3_err.log
 server_test3.log
 *.kt
+session.txt
+relatorio-tecnico.html
