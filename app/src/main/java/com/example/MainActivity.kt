@@ -3,8 +3,10 @@ package com.example
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -25,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,8 +53,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.camera.CameraPreview
+import com.example.camera.PoseOverlay
+import com.example.ml.DetectionMode
+import com.example.ml.JackResult
+import com.example.ml.PoseResult
+import com.example.model.Verdict
 import com.example.sensor.ImuData
 import com.example.ui.theme.MyApplicationTheme
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -98,12 +110,59 @@ fun MainScreen(
     val streamIntervalMs by viewModel.streamIntervalMs.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
 
+    val verdict by viewModel.verdict.collectAsStateWithLifecycle()
+    val esp32Url by viewModel.esp32Url.collectAsStateWithLifecycle()
+    val isEsp32Polling by viewModel.isEsp32Polling.collectAsStateWithLifecycle()
+
+    val selectedMode by viewModel.selectedMode.collectAsStateWithLifecycle()
+    val jackResult by viewModel.jackResult.collectAsStateWithLifecycle()
+    val poseResult by viewModel.poseResult.collectAsStateWithLifecycle()
+    val isCameraActive by viewModel.isCameraActive.collectAsStateWithLifecycle()
+
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val clipboardManager = LocalClipboardManager.current
 
     var showStreamLogs by remember { mutableStateOf(false) }
     var showServerLogsAndData by remember { mutableStateOf(false) }
+
+    val cameraPermission = android.Manifest.permission.CAMERA
+    val permissionState = remember { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        permissionState.value = granted
+        if (granted) {
+            viewModel.startCamera()
+        }
+    }
+
+    val qrScan: () -> Unit = {
+        val scanner = GmsBarcodeScanning.getClient(context)
+        scanner.startScan()
+            .addOnSuccessListener { barcode ->
+                barcode?.rawValue?.let { url ->
+                    if (url.startsWith("http://") || url.startsWith("https://")) {
+                        viewModel.updateEsp32Url(url)
+                        Toast.makeText(context, "ESP32 URL: $url", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        Unit
+    }
+
+    LaunchedEffect(selectedMode) {
+        when (selectedMode) {
+            DetectionMode.IMU -> viewModel.stopCamera()
+            DetectionMode.CAMERA, DetectionMode.BOTH -> {
+                if (permissionState.value) {
+                    viewModel.startCamera()
+                } else {
+                    permissionLauncher.launch(cameraPermission)
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -131,6 +190,20 @@ fun MainScreen(
             isServerRunning = isServerRunning
         )
 
+        // --- DETECTION MODE SELECTOR ---
+        ModeSelectorComponent(
+            selectedMode = selectedMode,
+            onModeSelected = { viewModel.setDetectionMode(it) },
+            isCameraActive = isCameraActive
+        )
+
+        // --- JACK RESULT FEEDBACK ---
+        if (jackResult != null) {
+            JackResultFeedbackCard(result = jackResult!!)
+        } else if (verdict != null) {
+            VerdictFeedbackCard(verdict = verdict!!)
+        }
+
         // --- MODE TOGGLE (TAB SWITCHER) ---
         TabSwitcherComponent(
             selectedTab = selectedTab,
@@ -150,9 +223,30 @@ fun MainScreen(
                 0 -> {
                     // TAB 1: SENSOR STREAM CONTROLS
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        SensorMetricVisualizer(
-                            imuData = imuState
-                        )
+                        when (selectedMode) {
+                            DetectionMode.CAMERA -> {
+                                CameraViewport(
+                                    poseResult = poseResult,
+                                    isCameraActive = isCameraActive
+                                )
+                            }
+                            DetectionMode.BOTH -> {
+                                CameraViewport(
+                                    poseResult = poseResult,
+                                    isCameraActive = isCameraActive,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OrientationVisualizer(
+                                    imuData = imuState,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            DetectionMode.IMU -> {
+                                SensorMetricVisualizer(
+                                    imuData = imuState
+                                )
+                            }
+                        }
 
                         StreamConfigurationCard(
                             targetUrl = targetUrl,
@@ -168,6 +262,17 @@ fun MainScreen(
                                 viewModel.toggleStreaming()
                             },
                             onClearStats = { viewModel.clearClientStats() }
+                        )
+
+                        Esp32ConfigCard(
+                            esp32Url = esp32Url,
+                            isEsp32Polling = isEsp32Polling,
+                            onUrlChange = { viewModel.updateEsp32Url(it) },
+                            onTogglePolling = {
+                                keyboardController?.hide()
+                                viewModel.toggleEsp32Polling()
+                            },
+                            onScanQr = qrScan
                         )
 
                         // Collapsible Console Logs Box to keep UI strictly minimalist
@@ -1702,6 +1807,455 @@ fun TerminalLogCard(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun VerdictFeedbackCard(verdict: Verdict) {
+    val isGood = verdict.formQuality == "GOOD"
+    val isBad = verdict.formQuality == "NEEDS_IMPROVEMENT"
+    val cardColor = when {
+        isGood -> Color(0xFF10B981)
+        isBad -> Color(0xFFEF4444)
+        else -> Color(0xFFF59E0B)
+    }
+    val statusText = if (verdict.isJacking) "POLICHINELO" else "REPOUSO"
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, cardColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(cardColor.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                isGood -> Icons.Default.Check
+                                isBad -> Icons.Default.Close
+                                else -> Icons.Default.Info
+                            },
+                            contentDescription = "Status",
+                            tint = cardColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = statusText,
+                            color = cardColor,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Forma: ${verdict.formQuality}",
+                            color = Color(0xFFCAC4D0),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1C1B1F)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${(verdict.confidence * 100).toInt()}%",
+                        color = cardColor,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1C1B1F))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Reps: ${verdict.repCount}  Dist: ${verdict.distanceCm}cm  Manual: ${verdict.manualReps}",
+                    color = Color(0xFF938F99),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun Esp32ConfigCard(
+    esp32Url: String,
+    isEsp32Polling: Boolean,
+    onUrlChange: (String) -> Unit,
+    onTogglePolling: () -> Unit,
+    onScanQr: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, Color(0xFF49454F))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Conexao ESP32 (Postura)",
+                    color = Color(0xFFE6E1E5),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                StatusPill(
+                    label = if (isEsp32Polling) "CONECTADO" else "DESLIGADO",
+                    isActive = isEsp32Polling,
+                    activeColor = Color(0xFF10B981)
+                )
+            }
+
+            OutlinedTextField(
+                value = esp32Url,
+                onValueChange = onUrlChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("esp32_url_input"),
+                label = { Text("URL do ESP32") },
+                placeholder = { Text("http://192.168.1.200") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF10B981),
+                    unfocusedBorderColor = Color(0xFF49454F),
+                    focusedLabelColor = Color(0xFF10B981),
+                    unfocusedLabelColor = Color(0xFFCAC4D0),
+                    focusedTextColor = Color(0xFFE6E1E5),
+                    unfocusedTextColor = Color(0xFFE6E1E5),
+                    focusedContainerColor = Color(0xFF1C1B1F),
+                    unfocusedContainerColor = Color(0xFF1C1B1F)
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done
+                ),
+                enabled = !isEsp32Polling
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onTogglePolling,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isEsp32Polling) Color(0xFFEF4444) else Color(0xFF10B981),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isEsp32Polling) Icons.Default.Close else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isEsp32Polling) "Desconectar" else "Conectar",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onScanQr,
+                    modifier = Modifier.width(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF49454F))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = "Ler QR Code",
+                        tint = Color(0xFFD0BCFF)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModeSelectorComponent(
+    selectedMode: DetectionMode,
+    onModeSelected: (DetectionMode) -> Unit,
+    isCameraActive: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.Transparent)
+            .border(1.dp, Color(0xFF938F99), RoundedCornerShape(24.dp))
+            .padding(1.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val modes = listOf(
+            DetectionMode.IMU to "IMU",
+            DetectionMode.CAMERA to "Camera",
+            DetectionMode.BOTH to "Ambos"
+        )
+        modes.forEach { (mode, label) ->
+            val isSelected = selectedMode == mode
+            val bgColor by animateColorAsState(
+                targetValue = if (isSelected) Color(0xFFE8DEF8) else Color.Transparent,
+                animationSpec = tween(150),
+                label = "mode_bg_${mode.name}"
+            )
+            val textColor by animateColorAsState(
+                targetValue = if (isSelected) Color(0xFF1D192B) else Color(0xFFCAC4D0),
+                animationSpec = tween(150),
+                label = "mode_text_${mode.name}"
+            )
+
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(bgColor)
+                    .clickable { onModeSelected(mode) }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (mode == DetectionMode.CAMERA || mode == DetectionMode.BOTH) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(if (isCameraActive) Color(0xFF7DFFB3) else Color(0xFF938F99))
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Text(
+                    text = label,
+                    color = textColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun JackResultFeedbackCard(result: JackResult) {
+    val isGood = result.formQuality == com.example.ml.FormQuality.GOOD
+    val isBad = result.formQuality == com.example.ml.FormQuality.NEEDS_IMPROVEMENT
+    val cardColor = when {
+        isGood -> Color(0xFF10B981)
+        isBad -> Color(0xFFF59E0B)
+        else -> Color(0xFF938F99)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, cardColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(cardColor.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                isGood -> Icons.Default.Check
+                                result.isJacking -> Icons.Default.Info
+                                else -> Icons.Default.Info
+                            },
+                            contentDescription = "Status",
+                            tint = cardColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = if (result.isJacking) "POLICHINELO DETECTADO" else "AGUARDANDO...",
+                            color = cardColor,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (result.details.isNotEmpty()) {
+                            Text(
+                                text = result.details,
+                                color = Color(0xFFCAC4D0),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "${result.repCount} reps",
+                        color = Color(0xFFD0BCFF),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1C1B1F))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Fonte: ${result.source.name}",
+                    color = Color(0xFF938F99),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (result.imuConfidence > 0f) {
+                        Text(
+                            text = "IMU: ${"%.0f".format(result.imuConfidence * 100)}%",
+                            color = Color(0xFF7DFFB3),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    if (result.poseConfidence > 0f) {
+                        Text(
+                            text = "Pose: ${"%.0f".format(result.poseConfidence * 100)}%",
+                            color = Color(0xFFD0BCFF),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CameraViewport(
+    poseResult: PoseResult?,
+    isCameraActive: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val viewModel: MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val scope = rememberCoroutineScope()
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2930)),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, Color(0xFF49454F))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "DETECCAO POR CAMERA",
+                    color = Color(0xFFD0BCFF),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                StatusPill(
+                    label = if (isCameraActive) "ATIVO" else "INATIVO",
+                    isActive = isCameraActive,
+                    activeColor = Color(0xFF7DFFB3)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF1C1B1F))
+                    .border(1.dp, Color(0xFF49454F), RoundedCornerShape(20.dp))
+            ) {
+                CameraPreview(
+                    modifier = Modifier.fillMaxSize(),
+                    onFrame = { bitmap ->
+                        scope.launch(Dispatchers.Default) {
+                            val result = viewModel.poseDetector.detect(bitmap)
+                            viewModel.onFrameProcessed(result)
+                        }
+                    },
+                    cameraActive = isCameraActive
+                )
+
+                PoseOverlay(
+                    poseResult = poseResult,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }

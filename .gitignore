@@ -16,3 +16,16 @@
 local.properties
 .env
 debug.keystore
+/.gradle_home
+/.idea
+/app
+/app
+/app/src/main
+/gradle
+/gradle
+gradlew.bat
+/server
+SETUP.html
+server_test3_err.log
+server_test3.log
+*.kt
