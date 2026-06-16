@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import com.example.client.StreamClient
 import com.example.ml.DetectionMode
@@ -15,11 +16,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+
+data class UserStatus(
+    val text: String,
+    val color: Color
+)
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -37,14 +46,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val streamLogs = streamClient.streamLogs
     val lastPostPayload = streamClient.lastPostPayload
 
-    // UI Settings
     private val _targetUrl = MutableStateFlow("https://reasonable-unity-production.up.railway.app/api/jackresult")
     val targetUrl = _targetUrl.asStateFlow()
 
     private val _streamIntervalMs = MutableStateFlow(500L)
     val streamIntervalMs = _streamIntervalMs.asStateFlow()
 
-    // Detection Mode
     private val _selectedMode = MutableStateFlow(DetectionMode.IMU)
     val selectedMode: StateFlow<DetectionMode> = _selectedMode.asStateFlow()
 
@@ -57,19 +64,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isCameraActive = MutableStateFlow(false)
     val isCameraActive: StateFlow<Boolean> = _isCameraActive.asStateFlow()
 
-    // Verdict populated from local jack result
     private val _verdict = MutableStateFlow<Verdict?>(null)
     val verdict = _verdict.asStateFlow()
+
+    private val _imuThreshold = MutableStateFlow(15.0f)
+    val imuThreshold = _imuThreshold.asStateFlow()
+
+    private val _userStatus = MutableStateFlow(UserStatus("REPOUSO ABSOLUTO 😴", Color(0xFF475569)))
+    val userStatus: StateFlow<UserStatus> = _userStatus.asStateFlow()
+
+    private val _onRepCounted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val onRepCounted: SharedFlow<Unit> = _onRepCounted.asSharedFlow()
 
     private val mlScope = CoroutineScope(Dispatchers.Default)
     private var jackJob: Job? = null
 
     private val _totalRepCount = MutableStateFlow(0)
-    val repCount: StateFlow<Int> = _totalRepCount.asStateFlow()
 
     private var lastJumpTime = 0L
     private var lastCameraRepTime = 0L
-    private var cameraJackState = 0 // 0: Down, 1: Up
+    private var cameraJackState = 0 
 
     init {
         sensorTracker.start()
@@ -82,6 +96,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateStreamInterval(interval: Long) {
         _streamIntervalMs.value = interval
+    }
+
+    fun updateImuThreshold(threshold: Float) {
+        _imuThreshold.value = threshold
     }
 
     fun setDetectionMode(mode: DetectionMode) {
@@ -120,7 +138,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val pose = _poseResult.value
                 val mode = _selectedMode.value
 
-                val result = jackClassifier.classify(imu, pose, mode)
                 val classifierResult = jackClassifier.classify(imu, pose, mode)
                 val curTime = System.currentTimeMillis()
                 
@@ -128,13 +145,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (mode == DetectionMode.IMU) {
                     val motionMag = kotlin.math.sqrt(imu.accelX * imu.accelX + imu.accelY * imu.accelY + imu.accelZ * imu.accelZ)
-                    if (motionMag > 13.2f && curTime - lastJumpTime > 1000) {
+                    if (motionMag > _imuThreshold.value && curTime - lastJumpTime > 1000) {
                         lastJumpTime = curTime
                         _totalRepCount.value += 1
+                        _onRepCounted.tryEmit(Unit)
                     }
                     isJacking = (curTime - lastJumpTime < 1000)
                 } else if (mode == DetectionMode.CAMERA && pose != null) {
-                    // Simple Camera Rep Detection
                     val keypoints = pose.keypoints
                     if (keypoints.size > 10) {
                         val lWrist = keypoints[9]
@@ -152,6 +169,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 cameraJackState = 0
                                 if (curTime - lastCameraRepTime > 800) {
                                     _totalRepCount.value += 1
+                                    _onRepCounted.tryEmit(Unit)
                                     lastCameraRepTime = curTime
                                 }
                             }
@@ -159,6 +177,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     isJacking = (cameraJackState == 1) || (classifierResult.isJacking)
                 }
+
+                updateUserStatus(imu, isJacking)
 
                 val updatedResult = classifierResult.copy(
                     repCount = _totalRepCount.value,
@@ -181,6 +201,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 delay(50)
             }
         }
+    }
+
+    private fun updateUserStatus(imu: com.example.sensor.ImuData, isJacking: Boolean) {
+        val motionMagnitude = kotlin.math.sqrt(imu.accelX * imu.accelX + imu.accelY * imu.accelY + imu.accelZ * imu.accelZ)
+        val angularSpeed = kotlin.math.abs(imu.gyroX) + kotlin.math.abs(imu.gyroY) + kotlin.math.abs(imu.gyroZ)
+
+        val status = when {
+            isJacking -> UserStatus("SALTANDO: POLICHINELO 🤸", Color(0xFFFBBF24))
+            motionMagnitude > 4.5f || angularSpeed > 2.2f -> UserStatus("CORRENDO / ACELERADO ⚡", Color(0xFF34D399))
+            motionMagnitude > 1.2f || angularSpeed > 1.0f -> UserStatus("ANDANDO / MOVIMENTO 🚶", Color(0xFF3B82F6))
+            motionMagnitude > 0.3f || angularSpeed > 0.3f -> UserStatus("INCLINANDO / SUAVE 🍃", Color(0xFF94A3B8))
+            else -> UserStatus("REPOUSO ABSOLUTO 😴", Color(0xFF475569))
+        }
+        _userStatus.value = status
     }
 
     fun toggleStreaming() {
