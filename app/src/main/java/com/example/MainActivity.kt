@@ -33,6 +33,7 @@ import com.example.sensor.ImuData
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -73,21 +74,26 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun OrientationVisualizer(
-    imuData: ImuData,
-    jackFactor: Float,
-    status: UserStatus,
+    viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val imuData by viewModel.imuState.collectAsStateWithLifecycle()
+    val status by viewModel.userStatus.collectAsStateWithLifecycle()
+    val jackResult by viewModel.jackResult.collectAsStateWithLifecycle()
+    val isJacking = jackResult?.isJacking == true
+    val jackFactor by animateFloatAsState(
+        targetValue = if (isJacking) 1f else 0f, 
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "jack_factor"
+    )
+
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
     var offsetZ by remember { mutableStateOf(0f) }
 
-    val calX = imuData.accelX - offsetX
-    val calY = imuData.accelY - offsetY
-
-    val sX by animateFloatAsState(targetValue = calX, label = "acc_x")
-    val sY by animateFloatAsState(targetValue = calY, label = "acc_y")
-    val sGZ by animateFloatAsState(targetValue = imuData.gyroZ, label = "gyro_z")
+    val sX by animateFloatAsState(targetValue = imuData.accelX - offsetX, animationSpec = spring(stiffness = 2000f), label = "acc_x")
+    val sY by animateFloatAsState(targetValue = imuData.accelY - offsetY, animationSpec = spring(stiffness = 2000f), label = "acc_y")
+    val sGZ by animateFloatAsState(targetValue = imuData.gyroZ, animationSpec = spring(stiffness = 2000f), label = "gyro_z")
 
     Box(modifier = modifier.clip(RoundedCornerShape(24.dp)).background(Color(0xFF1E293B)).border(1.dp, Color(0xFF334155), RoundedCornerShape(24.dp)).padding(14.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -111,15 +117,12 @@ fun OrientationVisualizer(
                     val midX = w / 2f
                     val midY = h * 0.44f
 
-                    val cLeanX = (-sX * 3.2f).coerceIn(-40f, 40f)
-                    val cLeanY = (sY * -2.2f).coerceIn(-22f, 22f)
-                    val twist = (sGZ * 14f).coerceIn(-28f, 28f)
-
                     val pX = midX - (sX * 12f).coerceIn(-50f, 50f)
                     val pY = midY + 12.dp.toPx() + (sY * 12f).coerceIn(-40f, 40f)
-                    val nX = midX + cLeanX - (sX * 12f).coerceIn(-50f, 50f)
-                    val nY = pY - 35.dp.toPx() + cLeanY
+                    val nX = midX + ((-sX * 3.2f).coerceIn(-40f, 40f)) - (sX * 12f).coerceIn(-50f, 50f)
+                    val nY = pY - 35.dp.toPx() + (sY * -2.2f).coerceIn(-22f, 22f)
 
+                    val twist = (sGZ * 14f).coerceIn(-28f, 28f)
                     val sWidth = 18.dp.toPx()
                     val lSX = nX - sWidth + twist * 0.2f
                     val lSY = nY + twist * 0.1f
@@ -148,12 +151,12 @@ fun OrientationVisualizer(
                     val hWidth = 12.dp.toPx()
                     val lHX = pX - hWidth
                     val rHX = pX + hWidth
-                    val lAL = (Math.PI * 0.5 + jackFactor * 0.4).toFloat()
-                    val lAR = (Math.PI * 0.5 - jackFactor * 0.4).toFloat()
-                    val lFX = lHX + lLen * kotlin.math.cos(lAL)
-                    val lFY = pY + lLen * kotlin.math.sin(lAL)
-                    val rFX = rHX + lLen * kotlin.math.cos(lAR)
-                    val rFY = pY + lLen * kotlin.math.sin(lAR)
+                    val lAngle = (Math.PI * 0.5 + jackFactor * 0.4).toFloat()
+                    val rAngle = (Math.PI * 0.5 - jackFactor * 0.4).toFloat()
+                    val lFX = lHX + lLen * kotlin.math.cos(lAngle)
+                    val lFY = pY + lLen * kotlin.math.sin(lAngle)
+                    val rFX = rHX + lLen * kotlin.math.cos(rAngle)
+                    val rFY = pY + lLen * kotlin.math.sin(rAngle)
                     drawLine(limbColor, Offset(lHX, pY), Offset(lFX, lFY), strokeWidth = 4f)
                     drawLine(limbColor, Offset(rHX, pY), Offset(rFX, rFY), strokeWidth = 4f)
 
@@ -184,12 +187,8 @@ fun MainScreen(
     val errorCount by viewModel.errorCount.collectAsStateWithLifecycle()
     val streamLogs by viewModel.streamLogs.collectAsStateWithLifecycle()
     val targetUrl by viewModel.targetUrl.collectAsStateWithLifecycle()
-    val imuState by viewModel.imuState.collectAsStateWithLifecycle()
-    val imuThreshold by viewModel.imuThreshold.collectAsStateWithLifecycle()
-    val userStatus by viewModel.userStatus.collectAsStateWithLifecycle()
+    val isWorkoutActive by viewModel.isWorkoutActive.collectAsStateWithLifecycle()
 
-    val context = LocalContext.current
-    val keyboardController = LocalSoftwareKeyboardController.current
     val haptic = LocalHapticFeedback.current
     var showLogs by remember { mutableStateOf(false) }
 
@@ -218,7 +217,6 @@ fun MainScreen(
     }
 
     val isJacking = jackResult?.isJacking == true
-    val jackFactor = if (isJacking) 1f else 0f
 
     val syncIconColor by remember {
         derivedStateOf {
@@ -253,8 +251,29 @@ fun MainScreen(
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)), shape = RoundedCornerShape(32.dp), elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)) {
             Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(if (isJacking) "EXERCITANDO" else "AGUARDANDO", color = if (isJacking) Color(0xFF34D399) else Color(0xFF64748B), fontWeight = FontWeight.Bold, letterSpacing = 2.sp, fontSize = 12.sp)
-                Text("${jackResult?.repCount ?: 0}", color = Color.White, fontSize = 84.sp, fontWeight = FontWeight.Black)
+                
+                val repCount = jackResult?.repCount ?: 0
+                val scale by animateFloatAsState(targetValue = if (isJacking) 1.2f else 1f, animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy), label = "rep_scale")
+                
+                Text(
+                    text = "$repCount",
+                    color = Color.White,
+                    fontSize = 84.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                )
                 Text("REPETIÇÕES", color = Color(0xFF94A3B8), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                
+                Button(
+                    onClick = { if (isWorkoutActive) viewModel.endWorkout() else viewModel.startWorkout() },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (isWorkoutActive) Color(0xFFEF4444) else Color(0xFF3B82F6))
+                ) {
+                    Icon(if (isWorkoutActive) Icons.Default.Stop else Icons.Default.PlayArrow, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isWorkoutActive) "FINALIZAR TREINO" else "INICIAR TREINO", fontWeight = FontWeight.Bold)
+                }
             }
         }
 
@@ -269,27 +288,21 @@ fun MainScreen(
 
         if (selectedMode == DetectionMode.CAMERA) {
             Box(modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(24.dp)).background(Color.Black).border(2.dp, Color(0xFF334155), RoundedCornerShape(24.dp))) {
-                CameraPreview(modifier = Modifier.fillMaxSize(), onFrame = { bitmap -> viewModel.onFrameProcessed(viewModel.poseDetector.detect(bitmap)) }, cameraActive = isCameraActive)
+                CameraPreview(
+                    modifier = Modifier.fillMaxSize(), 
+                    onFrame = { bitmap -> 
+                        viewModel.poseDetector.detect(bitmap)
+                    }, 
+                    cameraActive = isCameraActive
+                )
                 PoseOverlay(poseResult = poseResult, modifier = Modifier.fillMaxSize())
             }
         } else {
-            OrientationVisualizer(imuData = imuState, jackFactor = jackFactor, status = userStatus, modifier = Modifier.fillMaxWidth().height(300.dp))
+            OrientationVisualizer(viewModel = viewModel, modifier = Modifier.fillMaxWidth().height(300.dp))
         }
 
         if (selectedMode == DetectionMode.IMU) {
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.5f)), shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color(0xFF334155))) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Configuração de Sensibilidade", color = Color.White, fontWeight = FontWeight.Bold)
-                    Text("Ajuste a força necessária para contar um salto. Aumente se houver contagens falsas.", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                    Slider(
-                        value = imuThreshold,
-                        onValueChange = { viewModel.updateImuThreshold(it) },
-                        valueRange = 10f..30f,
-                        colors = SliderDefaults.colors(thumbColor = Color(0xFF3B82F6), activeTrackColor = Color(0xFF3B82F6))
-                    )
-                    Text("Sensibilidade: ${"%.1f".format(imuThreshold)}", color = Color(0xFF3B82F6), fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
-                }
-            }
+            SensitivityCard(viewModel = viewModel)
         }
 
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.5f)), shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color(0xFF334155))) {
@@ -307,6 +320,7 @@ fun MainScreen(
                     Switch(checked = isStreaming, onCheckedChange = { viewModel.toggleStreaming() }, colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF3B82F6)))
                 }
                 if (!isStreaming) {
+                    val keyboardController = LocalSoftwareKeyboardController.current
                     OutlinedTextField(value = targetUrl, onValueChange = { viewModel.updateTargetUrl(it) }, modifier = Modifier.fillMaxWidth(), label = { Text("URL do Servidor") }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color(0xFF334155), focusedBorderColor = Color(0xFF3B82F6), unfocusedTextColor = Color.White, focusedTextColor = Color.White), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() }))
                 } else {
                     Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF0F172A)).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -325,5 +339,37 @@ fun MainScreen(
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+@Composable
+fun SensitivityCard(viewModel: MainViewModel) {
+    val imuThreshold by viewModel.imuThreshold.collectAsStateWithLifecycle()
+    val imuState by viewModel.imuState.collectAsStateWithLifecycle()
+    val motionMagnitude = kotlin.math.sqrt(imuState.accelX * imuState.accelX + imuState.accelY * imuState.accelY + imuState.accelZ * imuState.accelZ)
+
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.5f)), shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color(0xFF334155))) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Configuração de Sensibilidade", color = Color(0xFFFFFFFF), fontWeight = FontWeight.Bold)
+            
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val powerProgress = (motionMagnitude / 30f).coerceIn(0f, 1f)
+                val thresholdProgress = (imuThreshold / 30f).coerceIn(0f, 1f)
+                
+                Box(modifier = Modifier.weight(1f).height(12.dp).clip(CircleShape).background(Color(0xFF0F172A))) {
+                    Box(modifier = Modifier.fillMaxWidth(powerProgress).fillMaxHeight().background(if (motionMagnitude > imuThreshold) Color(0xFF34D399) else Color(0xFF3B82F6)))
+                    Box(modifier = Modifier.offset(x = (thresholdProgress * 200).dp).width(2.dp).fillMaxHeight().background(Color.White))
+                }
+                Text("%.1f".format(motionMagnitude), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(30.dp))
+            }
+
+            Slider(
+                value = imuThreshold,
+                onValueChange = { viewModel.updateImuThreshold(it) },
+                valueRange = 10f..30f,
+                colors = SliderDefaults.colors(thumbColor = Color(0xFF3B82F6), activeTrackColor = Color(0xFF3B82F6))
+            )
+            Text("Limiar: ${"%.1f".format(imuThreshold)}", color = Color(0xFF3B82F6), fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
+        }
     }
 }
