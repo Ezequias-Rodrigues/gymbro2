@@ -31,3 +31,6 @@ server_test3.log
 *.kt
 session.txt
 relatorio-tecnico.html
+rest_of_truncated.txt
+truncated_parts.txt
+relatorio_texto.txt
